@@ -78,6 +78,43 @@ export const focusSessions = mysqlTable("focus_sessions", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const moduleRecords = mysqlTable("module_records", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  module: varchar("module", { length: 32 }).notNull(),
+  title: varchar("title", { length: 200 }).notNull(),
+  subtitle: varchar("subtitle", { length: 240 }),
+  status: varchar("status", { length: 32 }).default("active").notNull(),
+  numericValue: int("numericValue").default(0).notNull(),
+  amountCents: int("amountCents").default(0).notNull(),
+  recordDate: date("recordDate"),
+  details: text("details"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const auditLogs = mysqlTable("audit_logs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  action: varchar("action", { length: 32 }).notNull(),
+  entity: varchar("entity", { length: 64 }).notNull(),
+  entityId: int("entityId"),
+  beforeData: text("beforeData"),
+  afterData: text("afterData"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const userSettings = mysqlTable("user_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique().references(() => users.id),
+  goals: text("goals"),
+  notifications: boolean("notifications").default(true).notNull(),
+  preferredFocusMinutes: int("preferredFocusMinutes").default(25).notNull(),
+  preferredBreakMinutes: int("preferredBreakMinutes").default(5).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Habit = typeof habits.$inferSelect;

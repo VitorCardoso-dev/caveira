@@ -64,6 +64,10 @@ function shortDate(value: Date | string | null) {
   return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" }).format(new Date(value));
 }
 
+function money(cents: number) {
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(cents / 100);
+}
+
 function QuickDialog({ kind, onClose, onSaved }: { kind: "habit" | "task" | "goal"; onClose: () => void; onSaved: () => void }) {
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
@@ -138,15 +142,17 @@ export default function Home() {
   const today = useMemo(localDayKey, []);
   const date = useMemo(longDate, []);
   const snapshotQuery = trpc.dashboard.snapshot.useQuery({ today }, { enabled: isAuthenticated, refetchOnWindowFocus: false });
+  const reportQuery = trpc.reports.summary.useQuery(undefined, { enabled: isAuthenticated, refetchOnWindowFocus: false });
   const toggleHabit = trpc.habits.toggleToday.useMutation({ onSuccess: () => snapshotQuery.refetch() });
   const toggleTask = trpc.tasks.toggleComplete.useMutation({ onSuccess: () => snapshotQuery.refetch() });
   const [dialog, setDialog] = useState<"habit" | "task" | "goal" | null>(null);
 
-  if (loading || snapshotQuery.isLoading) {
+  if (loading || snapshotQuery.isLoading || reportQuery.isLoading) {
     return <div className="min-h-screen bg-caveira-bg p-6 text-caveira-muted"><div className="mx-auto max-w-7xl animate-pulse space-y-6"><div className="h-20 rounded-3xl bg-caveira-panel" /><div className="grid gap-4 md:grid-cols-4">{[1, 2, 3, 4].map(item => <div key={item} className="h-32 rounded-2xl bg-caveira-panel" />)}</div><div className="h-96 rounded-3xl bg-caveira-panel" /></div></div>;
   }
 
   const data = snapshotQuery.data;
+  const report = reportQuery.data;
   if (!data || !user) return <div className="min-h-screen bg-caveira-bg" />;
   const progressGoals = data.goals.map(goal => ({ ...goal, percentage: Math.min(100, Math.round((goal.progress / Math.max(goal.target, 1)) * 100)) }));
   const lastSeven = Array.from({ length: 7 }, (_, index) => {
@@ -180,6 +186,13 @@ export default function Home() {
             <div className="panel-card"><div className="section-heading"><div><p className="eyebrow">direção</p><h2 className="section-title">Metas em movimento</h2></div><button onClick={() => setDialog("goal")} className="icon-button" aria-label="Adicionar meta"><Plus size={17} /></button></div>{progressGoals.length === 0 ? <EmptyState icon={Target} title="Nenhuma meta definida" action="Criar primeira meta" onClick={() => setDialog("goal")} /> : <div className="space-y-5">{progressGoals.map(goal => <div key={goal.id}><div className="mb-2 flex items-center justify-between gap-3"><span className="truncate text-sm font-semibold">{goal.title}</span><span className="font-mono text-xs text-caveira-green">{goal.percentage}%</span></div><div className="progress-track"><div className="progress-fill" style={{ width: `${goal.percentage}%` }} /></div><p className="mt-2 text-[10px] font-bold uppercase tracking-[0.14em] text-caveira-muted">{goal.category} · {goal.progress}/{goal.target}</p></div>)}</div>}</div>
             <div className="panel-card"><div className="section-heading"><div><p className="eyebrow">ritmo recente</p><h2 className="section-title">Pulso da semana</h2></div><Activity size={18} className="text-caveira-muted" /></div><div className="flex h-40 items-end justify-between gap-2 border-b border-caveira-border pb-3 pt-5">{lastSeven.map(day => { const active = data.activityDates.includes(day); return <div key={day} className="flex h-full flex-1 flex-col items-center justify-end gap-2"><div className={`w-full rounded-t-md transition-all ${active ? "bg-caveira-red" : "bg-caveira-border"}`} style={{ height: active ? "58%" : "12%" }} /><span className="font-mono text-[10px] text-caveira-muted">{day.slice(8)}</span></div>; })}</div><p className="mt-4 text-xs leading-5 text-caveira-muted">Cada marca representa pelo menos uma ação registrada. Sem interpretações além do que foi feito.</p></div>
             <div className="panel-card flex flex-col justify-between"><div><p className="eyebrow">atalhos</p><h2 className="section-title">Registrar agora</h2><p className="mt-3 text-sm leading-6 text-caveira-muted">Alimente o painel com o que realmente aconteceu.</p></div><div className="mt-6 grid grid-cols-2 gap-2"><button onClick={() => setDialog("habit")} className="shortcut-button"><Activity size={16} /> hábito</button><button onClick={() => setDialog("task")} className="shortcut-button"><ListTodo size={16} /> tarefa</button><button onClick={() => setDialog("goal")} className="shortcut-button"><Target size={16} /> meta</button><Link href="/foco" className="shortcut-button"><Timer size={16} /> foco</Link></div></div>
+          </section>
+          <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+            <Link href="/treinos" className="panel-card transition hover:border-caveira-red"><p className="eyebrow">corpo</p><p className="mt-2 font-display text-2xl font-extrabold">{report?.counts.training ?? 0}</p><p className="mt-1 text-xs text-caveira-muted">registros de treino</p></Link>
+            <Link href="/alimentacao" className="panel-card transition hover:border-caveira-green"><p className="eyebrow">nutrição</p><p className="mt-2 font-display text-2xl font-extrabold">{report?.nutrition.caloriesToday ?? 0}</p><p className="mt-1 text-xs text-caveira-muted">kcal aproximadas hoje</p></Link>
+            <Link href="/financas" className="panel-card transition hover:border-caveira-red"><p className="eyebrow">finanças</p><p className="mt-2 font-display text-2xl font-extrabold">{money(report?.finance.balance ?? 0)}</p><p className="mt-1 text-xs text-caveira-muted">saldo observado no mês</p></Link>
+            <Link href="/recompensas" className="panel-card transition hover:border-caveira-green"><p className="eyebrow">lazer</p><p className="mt-2 font-display text-2xl font-extrabold">{report?.records.filter(record => record.module === "recompensas").length ?? 0}</p><p className="mt-1 text-xs text-caveira-muted">recompensas cadastradas</p></Link>
+            <Link href="/relatorios" className="panel-card transition hover:border-caveira-red"><p className="eyebrow">nível</p><p className="mt-2 font-display text-2xl font-extrabold">{report?.gamification.level ?? 1}</p><p className="mt-1 text-xs text-caveira-muted">{report?.gamification.xp ?? 0} XP acumulado</p></Link>
           </section>
         </main>
       </div>

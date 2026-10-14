@@ -15,6 +15,13 @@
       "when": 1791970579315,
       "tag": "0001_complete_hobgoblin",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1791971692906,
+      "tag": "0002_strange_black_knight",
+      "breakpoints": true
     }
   ]
 }

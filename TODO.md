@@ -9,6 +9,14 @@
 - [x] **Persistência e operações reais:** registros criados pela interface continuam disponíveis depois de fechar e reabrir o aplicativo; operações de cadastro, leitura, edição e exclusão têm origem no banco persistente, não em `localStorage` como banco definitivo; exclusões importantes pedem confirmação e alterações relevantes podem ser auditadas.
 - [x] **Base de dados e segurança:** o schema é versionado por migrações aditivas, as consultas são escopadas ao usuário autenticado, chaves não são expostas no navegador, e o servidor mantém `/api/health` funcional.
 
+## Entrega atual — base integrada dos módulos
+
+- Registros persistentes adicionados para treinos, alimentação, finanças e recompensas, com criação, edição, exclusão, datas, detalhes e trilha de auditoria.
+- Relatório integrado com tarefas, foco, treinos, calorias, saldo observado, linha do tempo e XP derivado apenas de ações reais.
+- Assistente financeiro protegido no servidor, fundamentado somente nas transações registradas e com fallback explícito quando a análise por IA não estiver disponível.
+- Preferências pessoais, exportação JSON, importação versionada, manifesto instalável, ícone e service worker para cache do shell offline.
+- O checklist abaixo permanece aberto onde ainda faltam recorrência avançada, subtarefas, banco de exercícios/alimentos, água, receitas, orçamentos, carteira de recompensas e relatórios comparativos completos.
+
 ## Fase 2 — Hábitos, tarefas, metas e foco
 
 - [ ] **Hábitos:** criar, editar, excluir e arquivar hábitos; frequência diária, semanal ou dias específicos; horários e lembretes; observações; estados concluído, pendente, dispensado e perdido; pausas planejadas sem penalizar dias anteriores; sequências, calendário, histórico, taxas diária/semanal/mensal e identificação de hábitos consistentes/negligenciados; alteração retroativa deixa registro.
