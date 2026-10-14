@@ -1,0 +1,15 @@
+{
+  "routes": [
+    { "path": "/", "title": "Dashboard" },
+    { "path": "/habitos", "title": "Hábitos" },
+    { "path": "/tarefas", "title": "Tarefas" },
+    { "path": "/metas", "title": "Metas" },
+    { "path": "/foco", "title": "Modo foco" },
+    { "path": "/treinos", "title": "Treinos" },
+    { "path": "/alimentacao", "title": "Alimentação" },
+    { "path": "/financas", "title": "Finanças" },
+    { "path": "/recompensas", "title": "Recompensas" },
+    { "path": "/relatorios", "title": "Relatórios" },
+    { "path": "/configuracoes", "title": "Configurações" }
+  ]
+}
