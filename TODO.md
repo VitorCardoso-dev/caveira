@@ -15,6 +15,7 @@
 - Relatório integrado com tarefas, foco, treinos, calorias, saldo observado, linha do tempo e XP derivado apenas de ações reais.
 - Assistente financeiro protegido no servidor, fundamentado somente nas transações registradas e com fallback explícito quando a análise por IA não estiver disponível.
 - Preferências pessoais, exportação JSON, importação versionada, manifesto instalável, ícone e service worker para cache do shell offline.
+- Logo fotográfica baseada na referência enviada, aplicada ao favicon, PWA, shell, dashboard e perfil; perfil privado com identificação da conta, status de sessão, configurações e saída segura.
 - O checklist abaixo permanece aberto onde ainda faltam recorrência avançada, subtarefas, banco de exercícios/alimentos, água, receitas, orçamentos, carteira de recompensas e relatórios comparativos completos.
 
 ## Fase 2 — Hábitos, tarefas, metas e foco

@@ -8,6 +8,6 @@
   "theme_color": "#0b0b0d",
   "lang": "pt-BR",
   "icons": [
-    { "src": "/caveira-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+    { "src": "/caveira-photo-logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
   ]
 }

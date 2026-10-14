@@ -1,6 +1,7 @@
 {
   "routes": [
     { "path": "/", "title": "Dashboard" },
+    { "path": "/perfil", "title": "Perfil" },
     { "path": "/habitos", "title": "Hábitos" },
     { "path": "/tarefas", "title": "Tarefas" },
     { "path": "/metas", "title": "Metas" },
