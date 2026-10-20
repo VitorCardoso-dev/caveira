@@ -19,8 +19,8 @@
 
 :root { font-family: "Inter", "Helvetica Neue", Arial, sans-serif; color: #f2f0ec; background: #0b0b0d; font-synthesis: none; text-rendering: optimizeLegibility; }
 * { box-sizing: border-box; }
-html { background: #0b0b0d; }
-body { margin: 0; min-width: 320px; background: #0b0b0d; }
+html { background: #0b0b0d; overflow-x: hidden; }
+body, #root { margin: 0; min-width: 320px; max-width: 100%; overflow-x: hidden; background: #0b0b0d; }
 button, input, select { font: inherit; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #e53935; outline-offset: 3px; }
 
@@ -52,10 +52,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .metric-label { color: #96959d; font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
   .metric-value { margin-top: 5px; font-family: "JetBrains Mono", monospace; font-size: 21px; font-weight: 700; letter-spacing: -.06em; }
   .metric-detail { margin-top: 3px; color: #696870; font-size: 11px; }
-  .panel-card { border: 1px solid #29292f; border-radius: 22px; padding: 21px; background: #121216; }
+  .panel-card { min-width: 0; border: 1px solid #29292f; border-radius: 22px; padding: 21px; background: #121216; }
   .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 19px; }
   .section-title { margin-top: 7px; font-family: "Inter", sans-serif; font-size: 20px; font-weight: 800; letter-spacing: -.045em; }
-  .record-row { display: flex; align-items: center; gap: 12px; min-height: 58px; border: 1px solid transparent; border-radius: 14px; padding: 8px 10px; transition: background .18s, border-color .18s; }
+  .record-row { display: flex; min-width: 0; align-items: center; gap: 12px; min-height: 58px; border: 1px solid transparent; border-radius: 14px; padding: 8px 10px; transition: background .18s, border-color .18s; }
   .record-row:hover { border-color: #29292f; background: #17171c; }
   .record-complete { background: rgba(183,243,107,.035); }
   .check-button { display: flex; width: 25px; height: 25px; flex: 0 0 auto; align-items: center; justify-content: center; border: 1px solid #45454e; border-radius: 8px; color: #0b0b0d; background: transparent; transition: border-color .18s, background .18s; }

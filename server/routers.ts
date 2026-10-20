@@ -148,14 +148,15 @@ export const appRouter = router({
         }));
 
         const priority = { high: 0, medium: 1, low: 2 } as const;
+        const overdueTasks = taskRows.filter(task => task.status !== "completed" && task.dueDate && dateKey(task.dueDate) < input.today);
         const openTasks = taskRows
-          .filter(task => task.status !== "completed")
+          .filter(task => task.status !== "completed" && (!task.dueDate || dateKey(task.dueDate) >= input.today))
           .sort((a, b) => priority[a.priority] - priority[b.priority] || sortableDate(a.dueDate).localeCompare(sortableDate(b.dueDate)))
           .slice(0, 6);
         const completedTasks = taskRows.filter(task => task.status === "completed").length;
         const totalSignals = habitRows.length + taskRows.length;
-        const completedSignals = todayCompleted.size + completedTasks;
-        const score = totalSignals === 0 ? 0 : Math.min(100, Math.round((completedSignals / totalSignals) * 100));
+        const completedSignals = todayCompleted.size + completedTasks - overdueTasks.length;
+        const score = totalSignals === 0 ? 0 : Math.max(0, Math.min(100, Math.round((completedSignals / totalSignals) * 100)));
         const focusMinutes = focusRows.reduce((sum, session) => sum + session.durationMinutes, 0);
         const weekStart = new Date(`${input.today}T12:00:00Z`);
         weekStart.setUTCDate(weekStart.getUTCDate() - 6);
@@ -177,7 +178,8 @@ export const appRouter = router({
           counts: {
             habits: habitRows.length,
             completedHabitsToday: todayCompleted.size,
-            openTasks: taskRows.filter(task => task.status !== "completed").length,
+            openTasks: openTasks.length,
+            overdueTasks: overdueTasks.length,
             completedTasks,
             focusMinutes,
             weeklyFocusMinutes,
@@ -236,8 +238,14 @@ export const appRouter = router({
       await db.update(tasks).set({ title: input.title, category: input.category || "Geral", priority: input.priority, dueDate: input.dueDate ? new Date(`${input.dueDate}T00:00:00.000Z`) : null, status: input.status ?? "todo" }).where(and(eq(tasks.id, input.taskId), eq(tasks.userId, ctx.user.id)));
       return { success: true } as const;
     }),
-    toggleComplete: protectedProcedure.input(z.object({ taskId: idSchema, completed: z.boolean() })).mutation(async ({ ctx, input }) => {
+    toggleComplete: protectedProcedure.input(z.object({ taskId: idSchema, completed: z.boolean(), today: daySchema.optional() })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
+      const ownTask = await db.select({ id: tasks.id, dueDate: tasks.dueDate, status: tasks.status }).from(tasks).where(and(eq(tasks.id, input.taskId), eq(tasks.userId, ctx.user.id))).limit(1);
+      if (!ownTask[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Tarefa não encontrada." });
+      const today = input.today ?? dateKey(new Date());
+      if (input.completed && ownTask[0].dueDate && dateKey(ownTask[0].dueDate) < today) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "O prazo desta tarefa já terminou e ela foi considerada não concluída." });
+      }
       await db.update(tasks).set({ status: input.completed ? "completed" : "todo" }).where(and(eq(tasks.id, input.taskId), eq(tasks.userId, ctx.user.id)));
       return { success: true } as const;
     }),
