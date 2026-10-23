@@ -17,6 +17,8 @@
 - Preferências pessoais, exportação JSON, importação versionada, manifesto instalável, ícone e service worker para cache do shell offline.
 - Logo fotográfica baseada na referência enviada, aplicada ao favicon, PWA, shell, dashboard e perfil; perfil privado com identificação da conta, status de sessão, configurações e saída segura.
 - Tarefas com prazo agora desaparecem da fila no dia seguinte ao vencimento, não podem ser concluídas retroativamente e descontam do placar; o layout global bloqueia rolagem horizontal em telas pequenas.
+- Navegação principal simplificada: Foco, Treinos, Alimentação e Finanças continuam acessíveis por rota direta, mas foram retirados das abas e dos atalhos visíveis.
+- Pontuação semanal realista: hábitos concluídos valem +2, tarefas baixa/média/alta +3/+5/+8, tarefas vencidas −2/−3/−5, metas concluídas +8 e foco +1 por bloco de 25 minutos com limite semanal; o relatório mostra ganhos, perdas, cumprimento e saldo, e recompensas podem consumir a carteira.
 - O checklist abaixo permanece aberto onde ainda faltam recorrência avançada, subtarefas, banco de exercícios/alimentos, água, receitas, orçamentos, carteira de recompensas e relatórios comparativos completos.
 
 ## Fase 2 — Hábitos, tarefas, metas e foco

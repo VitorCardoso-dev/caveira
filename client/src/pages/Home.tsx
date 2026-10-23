@@ -6,19 +6,15 @@ import {
   Check,
   CheckCircle2,
   ChevronRight,
-  CircleDollarSign,
   Clock3,
   Flame,
-  Flag,
   Home as HomeIcon,
   ListTodo,
   Menu,
   Plus,
   Skull,
   Target,
-  Timer,
   Trophy,
-  Utensils,
   UserRound,
   X,
 } from "lucide-react";
@@ -33,10 +29,6 @@ const navigation: Array<{ label: string; href: string; icon: LucideIcon }> = [
   { label: "Hábitos", href: "/habitos", icon: Activity },
   { label: "Tarefas", href: "/tarefas", icon: ListTodo },
   { label: "Metas", href: "/metas", icon: Target },
-  { label: "Foco", href: "/foco", icon: Timer },
-  { label: "Treinos", href: "/treinos", icon: Flag },
-  { label: "Alimentação", href: "/alimentacao", icon: Utensils },
-  { label: "Finanças", href: "/financas", icon: CircleDollarSign },
   { label: "Recompensas", href: "/recompensas", icon: Trophy },
   { label: "Relatórios", href: "/relatorios", icon: BarChart3 },
   { label: "Perfil", href: "/perfil", icon: UserRound },
@@ -145,16 +137,18 @@ export default function Home() {
   const date = useMemo(longDate, []);
   const snapshotQuery = trpc.dashboard.snapshot.useQuery({ today }, { enabled: isAuthenticated, refetchOnWindowFocus: false });
   const reportQuery = trpc.reports.summary.useQuery(undefined, { enabled: isAuthenticated, refetchOnWindowFocus: false });
+  const pointsQuery = trpc.points.weekly.useQuery({ today }, { enabled: isAuthenticated, refetchOnWindowFocus: false });
   const toggleHabit = trpc.habits.toggleToday.useMutation({ onSuccess: () => snapshotQuery.refetch() });
   const toggleTask = trpc.tasks.toggleComplete.useMutation({ onSuccess: () => snapshotQuery.refetch(), onError: error => toast.error(error.message) });
   const [dialog, setDialog] = useState<"habit" | "task" | "goal" | null>(null);
 
-  if (loading || snapshotQuery.isLoading || reportQuery.isLoading) {
+  if (loading || snapshotQuery.isLoading || reportQuery.isLoading || pointsQuery.isLoading) {
     return <div className="min-h-screen bg-caveira-bg p-6 text-caveira-muted"><div className="mx-auto max-w-7xl animate-pulse space-y-6"><div className="h-20 rounded-3xl bg-caveira-panel" /><div className="grid gap-4 md:grid-cols-4">{[1, 2, 3, 4].map(item => <div key={item} className="h-32 rounded-2xl bg-caveira-panel" />)}</div><div className="h-96 rounded-3xl bg-caveira-panel" /></div></div>;
   }
 
   const data = snapshotQuery.data;
   const report = reportQuery.data;
+  const points = pointsQuery.data;
   if (!data || !user) return <div className="min-h-screen bg-caveira-bg" />;
   const progressGoals = data.goals.map(goal => ({ ...goal, percentage: Math.min(100, Math.round((goal.progress / Math.max(goal.target, 1)) * 100)) }));
   const lastSeven = Array.from({ length: 7 }, (_, index) => {
@@ -172,12 +166,13 @@ export default function Home() {
         <div className="absolute inset-x-5 bottom-6 rounded-2xl border border-caveira-border bg-caveira-panel p-4"><div className="mb-3 flex items-center justify-between"><span className="text-[10px] font-bold uppercase tracking-[0.18em] text-caveira-muted">sistema</span><span className="status-dot" /></div><p className="text-sm font-semibold">Operação privada</p><p className="mt-1 text-xs leading-5 text-caveira-muted">Seus registros ficam no seu espaço autenticado.</p></div>
       </aside>
 
-      <div className="lg:pl-[248px]"><header className="sticky top-0 z-20 border-b border-caveira-border bg-caveira-bg/90 backdrop-blur-xl"><div className="mx-auto flex max-w-[1440px] items-center justify-between px-5 py-4 sm:px-8"><div className="flex items-center gap-3"><Link href="/perfil" className="brand-mark overflow-hidden p-0 lg:hidden"><img src="/caveira-photo-logo.png" alt="Perfil" className="h-full w-full object-cover" /></Link><div><p className="eyebrow">{date}</p><h1 className="mt-1 font-display text-xl font-extrabold tracking-[-0.04em] sm:text-2xl">Bom dia, {firstName(user.name)}.</h1></div></div><div className="flex items-center gap-2 sm:gap-3"><Link href="/perfil" className="hidden h-9 w-9 overflow-hidden rounded-xl border border-caveira-border sm:block"><img src="/caveira-photo-logo.png" alt="Abrir perfil" className="h-full w-full object-cover" /></Link><span className="hidden items-center gap-2 rounded-full border border-caveira-border px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-caveira-muted sm:flex"><span className="status-dot" /> sistema online</span><Link href="/foco" className="button-primary hidden sm:inline-flex"><Timer size={15} /> iniciar foco</Link><button className="icon-button" aria-label="Menu"><Menu size={18} /></button></div></div></header>
+      <div className="lg:pl-[248px]"><header className="sticky top-0 z-20 border-b border-caveira-border bg-caveira-bg/90 backdrop-blur-xl"><div className="mx-auto flex max-w-[1440px] items-center justify-between px-5 py-4 sm:px-8"><div className="flex items-center gap-3"><Link href="/perfil" className="brand-mark overflow-hidden p-0 lg:hidden"><img src="/caveira-photo-logo.png" alt="Perfil" className="h-full w-full object-cover" /></Link><div><p className="eyebrow">{date}</p><h1 className="mt-1 font-display text-xl font-extrabold tracking-[-0.04em] sm:text-2xl">Bom dia, {firstName(user.name)}.</h1></div></div><div className="flex items-center gap-2 sm:gap-3"><Link href="/perfil" className="hidden h-9 w-9 overflow-hidden rounded-xl border border-caveira-border sm:block"><img src="/caveira-photo-logo.png" alt="Abrir perfil" className="h-full w-full object-cover" /></Link><span className="hidden items-center gap-2 rounded-full border border-caveira-border px-3 py-2 text-[10px] font-bold uppercase tracking-[0.14em] text-caveira-muted sm:flex"><span className="status-dot" /> sistema online</span><button className="icon-button" aria-label="Menu"><Menu size={18} /></button></div></div></header>
         <main className="mx-auto max-w-[1440px] space-y-6 px-5 py-7 pb-28 sm:px-8 lg:py-9 lg:pb-12">
           <section className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
             <div className="hero-card"><div className="relative z-10 max-w-lg"><p className="eyebrow text-caveira-red">placar de hoje</p><div className="mt-3 flex items-end gap-3"><span className="font-display text-7xl font-black leading-none tracking-[-0.09em] sm:text-8xl">{data.score}</span><span className="mb-2 text-lg font-bold text-caveira-muted">%</span></div><p className="mt-4 max-w-sm text-sm leading-6 text-caveira-muted">A pontuação é calculada sobre hábitos concluídos hoje e tarefas já finalizadas.</p><div className="mt-6 flex flex-wrap gap-3"><button onClick={() => setDialog("habit")} className="button-primary"><Plus size={15} /> registrar hábito</button><button onClick={() => setDialog("task")} className="button-secondary">nova tarefa <ArrowUpRight size={15} /></button></div></div><div className="hero-grid" /><div className="hero-line" /></div>
             <div className="grid grid-cols-2 gap-4"><Metric label="Consistência" value={`${data.streak} dias`} detail="sequência atual" icon={Flame} accent="red" /><Metric label="Hábitos" value={`${data.counts.completedHabitsToday}/${data.counts.habits}`} detail="concluídos hoje" icon={CheckCircle2} accent="green" /><Metric label="Prioridades" value={data.counts.openTasks} detail="tarefas abertas" icon={ListTodo} /><Metric label="Foco" value={`${data.counts.weeklyFocusMinutes}m`} detail="nos últimos 7 dias" icon={Clock3} /></div>
           </section>
+          {points && <section className="panel-card"><div className="section-heading"><div><p className="eyebrow text-caveira-red">placar semanal · {points.start} até {points.today}</p><h2 className="section-title">Pontos reais, sem exagero</h2></div><span className="status-tag green">carteira {points.walletBalance} pts</span></div><div className="grid gap-3 sm:grid-cols-4"><Metric label="saldo semanal" value={`${points.net} pts`} detail="ganhos menos perdas" icon={Trophy} accent={points.net >= 0 ? "green" : "red"} /><Metric label="ganhos" value={`+${points.earned}`} detail="ações concluídas" icon={CheckCircle2} accent="green" /><Metric label="perdas" value={`-${points.lost}`} detail={`${points.breakdown.overdueTasks} prazos vencidos`} icon={ListTodo} accent="red" /><Metric label="cumprimento" value={`${points.completionRate}%`} detail="obrigações observadas" icon={Target} /></div><p className="mt-4 text-xs leading-5 text-caveira-muted">Regra simples: hábito +2, tarefa baixa/média/alta +3/+5/+8, tarefa vencida −2/−3/−5, meta concluída +8. O foco rende +1 por bloco de 25 minutos, limitado a 5 pontos por semana.</p></section>}
 
           <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
             <div className="panel-card"><div className="section-heading"><div><p className="eyebrow">ritual de hoje</p><h2 className="section-title">Hábitos em campo</h2></div><button onClick={() => setDialog("habit")} className="icon-button" aria-label="Adicionar hábito"><Plus size={17} /></button></div>{data.habits.length === 0 ? <EmptyState icon={Activity} title="Nenhum hábito cadastrado" action="Criar primeiro hábito" onClick={() => setDialog("habit")} /> : <div className="space-y-2">{data.habits.slice(0, 5).map(habit => <div key={habit.id} className={`record-row ${habit.completedToday ? "record-complete" : ""}`}><button onClick={() => toggleHabit.mutate({ habitId: habit.id, day: today, completed: !habit.completedToday })} className={`check-button ${habit.completedToday ? "checked" : ""}`} aria-label={habit.completedToday ? "Desmarcar hábito" : "Concluir hábito"}>{habit.completedToday && <Check size={14} />}</button><div className="min-w-0 flex-1"><p className={`truncate text-sm font-semibold ${habit.completedToday ? "line-through opacity-60" : ""}`}>{habit.name}</p><p className="mt-1 text-[10px] font-bold uppercase tracking-[0.14em] text-caveira-muted">{habit.category} · {habit.streak} {habit.streak === 1 ? "dia" : "dias"}</p></div><span className={`status-tag ${habit.completedToday ? "green" : ""}`}>{habit.completedToday ? "feito" : "pendente"}</span></div>)}</div>}{data.habits.length > 5 && <Link href="/habitos" className="mt-4 flex items-center justify-center gap-1 text-xs font-bold uppercase tracking-[0.14em] text-caveira-muted hover:text-caveira-text">ver todos <ChevronRight size={14} /></Link>}</div>
@@ -187,7 +182,7 @@ export default function Home() {
           <section className="grid gap-6 lg:grid-cols-[1fr_1fr_0.82fr]">
             <div className="panel-card"><div className="section-heading"><div><p className="eyebrow">direção</p><h2 className="section-title">Metas em movimento</h2></div><button onClick={() => setDialog("goal")} className="icon-button" aria-label="Adicionar meta"><Plus size={17} /></button></div>{progressGoals.length === 0 ? <EmptyState icon={Target} title="Nenhuma meta definida" action="Criar primeira meta" onClick={() => setDialog("goal")} /> : <div className="space-y-5">{progressGoals.map(goal => <div key={goal.id}><div className="mb-2 flex items-center justify-between gap-3"><span className="truncate text-sm font-semibold">{goal.title}</span><span className="font-mono text-xs text-caveira-green">{goal.percentage}%</span></div><div className="progress-track"><div className="progress-fill" style={{ width: `${goal.percentage}%` }} /></div><p className="mt-2 text-[10px] font-bold uppercase tracking-[0.14em] text-caveira-muted">{goal.category} · {goal.progress}/{goal.target}</p></div>)}</div>}</div>
             <div className="panel-card"><div className="section-heading"><div><p className="eyebrow">ritmo recente</p><h2 className="section-title">Pulso da semana</h2></div><Activity size={18} className="text-caveira-muted" /></div><div className="flex h-40 items-end justify-between gap-2 border-b border-caveira-border pb-3 pt-5">{lastSeven.map(day => { const active = data.activityDates.includes(day); return <div key={day} className="flex h-full flex-1 flex-col items-center justify-end gap-2"><div className={`w-full rounded-t-md transition-all ${active ? "bg-caveira-red" : "bg-caveira-border"}`} style={{ height: active ? "58%" : "12%" }} /><span className="font-mono text-[10px] text-caveira-muted">{day.slice(8)}</span></div>; })}</div><p className="mt-4 text-xs leading-5 text-caveira-muted">Cada marca representa pelo menos uma ação registrada. Sem interpretações além do que foi feito.</p></div>
-            <div className="panel-card flex flex-col justify-between"><div><p className="eyebrow">atalhos</p><h2 className="section-title">Registrar agora</h2><p className="mt-3 text-sm leading-6 text-caveira-muted">Alimente o painel com o que realmente aconteceu.</p></div><div className="mt-6 grid grid-cols-2 gap-2"><button onClick={() => setDialog("habit")} className="shortcut-button"><Activity size={16} /> hábito</button><button onClick={() => setDialog("task")} className="shortcut-button"><ListTodo size={16} /> tarefa</button><button onClick={() => setDialog("goal")} className="shortcut-button"><Target size={16} /> meta</button><Link href="/foco" className="shortcut-button"><Timer size={16} /> foco</Link></div></div>
+            <div className="panel-card flex flex-col justify-between"><div><p className="eyebrow">atalhos</p><h2 className="section-title">Registrar agora</h2><p className="mt-3 text-sm leading-6 text-caveira-muted">Alimente o painel com o que realmente aconteceu.</p></div><div className="mt-6 grid grid-cols-2 gap-2"><button onClick={() => setDialog("habit")} className="shortcut-button"><Activity size={16} /> hábito</button><button onClick={() => setDialog("task")} className="shortcut-button"><ListTodo size={16} /> tarefa</button><button onClick={() => setDialog("goal")} className="shortcut-button"><Target size={16} /> meta</button></div></div>
           </section>
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <Link href="/treinos" className="panel-card transition hover:border-caveira-red"><p className="eyebrow">corpo</p><p className="mt-2 font-display text-2xl font-extrabold">{report?.counts.training ?? 0}</p><p className="mt-1 text-xs text-caveira-muted">registros de treino</p></Link>

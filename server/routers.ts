@@ -8,6 +8,7 @@ import {
   habitCompletions,
   habits,
   moduleRecords,
+  pointTransactions,
   tasks,
   userSettings,
 } from "../drizzle/schema";
@@ -55,6 +56,10 @@ function calculateStreak(days: Set<string>, today: string) {
   }
   return streak;
 }
+
+const POINTS = { habitDone: 2, habitMissed: -1, taskLow: 3, taskMedium: 5, taskHigh: 8, taskOverdueLow: -2, taskOverdueMedium: -3, taskOverdueHigh: -5, goalDone: 8, focusBlock: 1 } as const;
+function weekStartKey(today: string) { const date = new Date(`${today}T12:00:00Z`); date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7)); return date.toISOString().slice(0, 10); }
+function pointsForPriority(priority: "low" | "medium" | "high", overdue = false) { if (overdue) return priority === "high" ? POINTS.taskOverdueHigh : priority === "medium" ? POINTS.taskOverdueMedium : POINTS.taskOverdueLow; return priority === "high" ? POINTS.taskHigh : priority === "medium" ? POINTS.taskMedium : POINTS.taskLow; }
 
 function decodeDetails(raw: string | null) {
   if (!raw) return {};
@@ -114,6 +119,46 @@ export const appRouter = router({
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
+    }),
+  }),
+
+  points: router({
+    weekly: protectedProcedure.input(z.object({ today: daySchema })).query(async ({ ctx, input }) => {
+      const db = await requireDb();
+      const start = weekStartKey(input.today);
+      const [habitRows, completionRows, taskRows, goalRows, focusRows, spendingRows] = await Promise.all([
+        db.select().from(habits).where(eq(habits.userId, ctx.user.id)),
+        db.select().from(habitCompletions).where(eq(habitCompletions.userId, ctx.user.id)),
+        db.select().from(tasks).where(eq(tasks.userId, ctx.user.id)),
+        db.select().from(goals).where(eq(goals.userId, ctx.user.id)),
+        db.select().from(focusSessions).where(eq(focusSessions.userId, ctx.user.id)),
+        db.select().from(pointTransactions).where(eq(pointTransactions.userId, ctx.user.id)),
+      ]);
+      const completedHabitDays = new Set(completionRows.filter(row => row.status === "completed" && dateKey(row.day) >= start && dateKey(row.day) <= input.today).map(row => `${row.habitId}:${dateKey(row.day)}`));
+      const missedHabitDays = new Set(completionRows.filter(row => row.status === "missed" && dateKey(row.day) >= start && dateKey(row.day) <= input.today).map(row => `${row.habitId}:${dateKey(row.day)}`));
+      let habitDone = 0; let habitMissed = 0;
+      for (const habit of habitRows.filter(row => row.active && row.frequency === "daily")) {
+        const created = dateKey(habit.createdAt);
+        for (let cursor = new Date(`${start}T12:00:00Z`); cursor <= new Date(`${input.today}T12:00:00Z`); cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+          const day = cursor.toISOString().slice(0, 10); if (day < created) continue;
+          if (completedHabitDays.has(`${habit.id}:${day}`)) habitDone += POINTS.habitDone;
+          else if (missedHabitDays.has(`${habit.id}:${day}`) || day < input.today) habitMissed += POINTS.habitMissed;
+        }
+      }
+      const completedTasks = taskRows.filter(task => task.status === "completed" && dateKey(task.updatedAt) >= start && dateKey(task.updatedAt) <= input.today);
+      const overdueTasks = taskRows.filter(task => task.status !== "completed" && task.dueDate && dateKey(task.dueDate) >= start && dateKey(task.dueDate) < input.today);
+      const taskEarned = completedTasks.reduce((sum, task) => sum + pointsForPriority(task.priority), 0);
+      const taskLost = overdueTasks.reduce((sum, task) => sum + pointsForPriority(task.priority, true), 0);
+      const goalEarned = goalRows.filter(goal => goal.status === "completed" && dateKey(goal.updatedAt) >= start && dateKey(goal.updatedAt) <= input.today).length * POINTS.goalDone;
+      const focusEarned = Math.min(5, Math.floor(focusRows.filter(session => dateKey(session.createdAt) >= start && dateKey(session.createdAt) <= input.today).reduce((sum, session) => sum + session.durationMinutes, 0) / 25)) * POINTS.focusBlock;
+      const earned = Math.max(0, habitDone + taskEarned + goalEarned + focusEarned);
+      const lost = Math.abs(habitMissed + taskLost);
+      const spent = spendingRows.reduce((sum, row) => sum + Math.max(0, row.points), 0);
+      const net = earned - lost;
+      const walletBalance = Math.max(0, net - spent);
+      const obligations = habitRows.filter(row => row.active && row.frequency === "daily").length * Math.max(0, Math.floor((new Date(`${input.today}T12:00:00Z`).getTime() - new Date(`${start}T12:00:00Z`).getTime()) / 86400000) + 1) + taskRows.filter(task => (task.dueDate && dateKey(task.dueDate) >= start && dateKey(task.dueDate) <= input.today) || task.status === "completed").length;
+      const completedObligations = completedHabitDays.size + completedTasks.length;
+      return { start, today: input.today, earned, lost, net, spent, walletBalance, completionRate: obligations ? Math.round((completedObligations / obligations) * 100) : 0, breakdown: { habits: habitDone + habitMissed, tasks: taskEarned + taskLost, goals: goalEarned, focus: focusEarned, overdueTasks: overdueTasks.length }, rules: { habitDone: POINTS.habitDone, taskLow: POINTS.taskLow, taskMedium: POINTS.taskMedium, taskHigh: POINTS.taskHigh, overdueLow: POINTS.taskOverdueLow, overdueMedium: POINTS.taskOverdueMedium, overdueHigh: POINTS.taskOverdueHigh, goalDone: POINTS.goalDone, focusBlock: POINTS.focusBlock } };
     }),
   }),
 
@@ -316,6 +361,15 @@ export const appRouter = router({
       if (!existing[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Registro não encontrado." });
       await db.delete(moduleRecords).where(and(eq(moduleRecords.id, input.id), eq(moduleRecords.userId, ctx.user.id)));
       await db.insert(auditLogs).values({ userId: ctx.user.id, action: "delete", entity: existing[0].module, entityId: input.id, beforeData: JSON.stringify(serializeRecord(existing[0])) });
+      return { success: true } as const;
+    }),
+    redeem: protectedProcedure.input(z.object({ id: idSchema, points: z.number().int().positive().max(100000) })).mutation(async ({ ctx, input }) => {
+      const db = await requireDb();
+      const existing = await db.select().from(moduleRecords).where(and(eq(moduleRecords.id, input.id), eq(moduleRecords.userId, ctx.user.id), eq(moduleRecords.module, "recompensas"))).limit(1);
+      if (!existing[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Recompensa não encontrada." });
+      if (existing[0].status === "redeemed") throw new TRPCError({ code: "BAD_REQUEST", message: "Esta recompensa já foi resgatada." });
+      await db.insert(pointTransactions).values({ userId: ctx.user.id, points: input.points, reason: `Resgate: ${existing[0].title}`, referenceId: input.id });
+      await db.update(moduleRecords).set({ status: "redeemed" }).where(eq(moduleRecords.id, input.id));
       return { success: true } as const;
     }),
   }),

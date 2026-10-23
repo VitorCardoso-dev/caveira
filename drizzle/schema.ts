@@ -115,6 +115,15 @@ export const userSettings = mysqlTable("user_settings", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+export const pointTransactions = mysqlTable("point_transactions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  points: int("points").notNull(),
+  reason: varchar("reason", { length: 200 }).notNull(),
+  referenceId: int("referenceId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Habit = typeof habits.$inferSelect;
