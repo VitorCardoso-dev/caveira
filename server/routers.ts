@@ -633,6 +633,68 @@ export const appRouter = router({
         records: records.slice(0, 80).map(serializeRecord),
       };
     }),
+    monthly: protectedProcedure.query(async ({ ctx }) => {
+      const db = await requireDb();
+      const [habitRows, completionRows, taskRows, goalRows, sessions] = await Promise.all([
+        db.select().from(habits).where(eq(habits.userId, ctx.user.id)),
+        db.select().from(habitCompletions).where(and(eq(habitCompletions.userId, ctx.user.id), eq(habitCompletions.status, "completed"))),
+        db.select().from(tasks).where(eq(tasks.userId, ctx.user.id)),
+        db.select().from(goals).where(eq(goals.userId, ctx.user.id)),
+        db.select().from(trainingSessions).where(and(eq(trainingSessions.userId, ctx.user.id), eq(trainingSessions.status, "completed"))),
+      ]);
+      const now = new Date();
+      const month = now.toISOString().slice(0, 7);
+      const currentDay = now.getDate();
+      const inMonth = (value: Date | string | null) => Boolean(value && dateKey(value).startsWith(month));
+      const completedTasks = taskRows.filter(task => task.status === "completed" && inMonth(task.updatedAt));
+      const monthCompletions = completionRows.filter(item => inMonth(item.day));
+      const monthSessions = sessions.filter(item => inMonth(item.sessionDate));
+      const monthTasksCreated = taskRows.filter(task => inMonth(task.createdAt));
+      const monthGoals = goalRows.filter(goal => inMonth(goal.createdAt) || inMonth(goal.updatedAt));
+      const activeDays = new Set<string>();
+      completedTasks.forEach(task => activeDays.add(dateKey(task.updatedAt)));
+      monthCompletions.forEach(item => activeDays.add(dateKey(item.day)));
+      monthSessions.forEach(item => activeDays.add(dateKey(item.sessionDate)));
+      const daily = Array.from({ length: currentDay }, (_, index) => {
+        const dayDate = new Date(now.getFullYear(), now.getMonth(), index + 1, 12);
+        const day = dayDate.toISOString().slice(0, 10);
+        const categories = new Set<string>();
+        let points = 0;
+        for (const item of monthCompletions.filter(row => dateKey(row.day) === day)) {
+          const category = habitRows.find(habit => habit.id === item.habitId)?.category ?? "Hábitos";
+          if (!categories.has(category)) { categories.add(category); points += POINTS.habitDone; }
+        }
+        for (const task of completedTasks.filter(row => dateKey(row.updatedAt) === day)) {
+          if (!categories.has(task.category)) { categories.add(task.category); points += pointsForCategory(task.category); }
+        }
+        for (const session of monthSessions.filter(row => dateKey(row.sessionDate) === day)) {
+          if (!categories.has("Físico")) { categories.add("Físico"); points += 5; }
+        }
+        return { day, points };
+      });
+      const areaMap = new Map<string, { total: number; completed: number }>();
+      const addArea = (category: string, completed: number, total: number) => {
+        const current = areaMap.get(category) ?? { total: 0, completed: 0 };
+        current.total += total;
+        current.completed += completed;
+        areaMap.set(category, current);
+      };
+      for (const task of monthTasksCreated) addArea(task.category, task.status === "completed" && inMonth(task.updatedAt) ? 1 : 0, 1);
+      for (const item of monthCompletions) addArea(habitRows.find(habit => habit.id === item.habitId)?.category ?? "Hábitos", 1, 1);
+      if (monthSessions.length) addArea("Físico", monthSessions.length, monthSessions.length);
+      const areas = [...areaMap.entries()].map(([category, value]) => ({ category, ...value, rate: value.total ? Math.round((value.completed / value.total) * 100) : 0 })).sort((a, b) => b.rate - a.rate || b.completed - a.completed);
+      const hasData = activeDays.size > 0 || monthTasksCreated.length > 0 || monthGoals.length > 0;
+      const bestArea = areas[0] ?? null;
+      const attentionArea = areas.length > 1 ? areas[areas.length - 1] : null;
+      return {
+        month,
+        hasData,
+        summary: { consistency: currentDay ? Math.round((activeDays.size / currentDay) * 100) : 0, activeDays: activeDays.size, completedTasks: completedTasks.length, accompaniedGoals: monthGoals.length },
+        daily,
+        areas,
+        analysis: hasData ? { bestArea: bestArea?.category ?? null, attentionArea: attentionArea?.category ?? null, suggestions: [bestArea ? `Mantenha o ritmo em ${bestArea.category}.` : null, attentionArea ? `Revise a rotina de ${attentionArea.category} no próximo ciclo.` : null, completedTasks.length === 0 ? "Defina uma primeira tarefa com prazo real para criar uma referência." : null].filter(Boolean) } : null,
+      };
+    }),
   }),
 
   finance: router({
