@@ -91,7 +91,10 @@ const recordFields: Record<ModuleCode, Field[]> = {
 
 function formatDate(value: Date | string | null | undefined) {
   if (!value) return "Sem data";
-  return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(value));
+  const raw = typeof value === "string" ? value : value.toISOString();
+  const dateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:T00:00:00(?:\.000)?Z)?$/);
+  const date = dateOnly ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]), 12) : new Date(value);
+  return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }).format(date);
 }
 
 function money(cents: number) {
