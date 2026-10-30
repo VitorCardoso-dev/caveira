@@ -45,3 +45,11 @@ Construir o CAVEIRA como um sistema pessoal privado de evolução integral. A en
 ## Build e validação
 
 O projeto deve rodar com `pnpm dev` em `0.0.0.0:3000`, expor `/api/health` e `/manus-routes.json`, passar por `pnpm check`, `pnpm test` e `pnpm build`. Mudanças de schema devem gerar migração Drizzle aditiva e ser aplicadas conscientemente ao banco gerenciado compartilhado. Antes de um checkpoint, revisar a diff, configurar `logoUrl` literal em `app.config.ts`, confirmar que o dashboard não contém dados de demonstração e salvar no Git canônico; publicação só ocorre se autorizada pela configuração existente.
+
+## Módulo de Treinos — arquitetura aprovada
+
+O módulo acrescentará as tabelas `exercise_library`, `training_plans`, `training_exercises`, `training_sessions` e `training_sets`, sempre com `userId` e autorização no servidor. A página dedicada `/treinos` terá exatamente três guias: **Visão geral**, **Criação de treinos** e **Acompanhamento do treino**. A primeira resume fichas, dias, treino atual, última sessão, frequência, histórico e evolução. A segunda cria fichas A/B/C/D, modalidade, dias, exercícios, séries, repetições, carga, descanso e ordenação, além de exercícios personalizados. A terceira carrega o treino do dia, mantém tudo em uma tela prática para celular, registra cada série imediatamente, controla descanso, mostra progresso e finaliza a sessão.
+
+Cada sessão concluída é um registro separado e imutável para o histórico; editar uma ficha não altera sessões anteriores. A série salva será idempotente por sessão/exercício/número da série e o servidor aceitará salvamento incremental para reduzir perda de dados. Sessões concluídas alimentarão metas de treino e a pontuação de categoria Físico com a deduplicação já existente.
+
+O design seguirá o brutalismo editorial fitness do CAVEIRA: cards densos, números monoespaçados, vermelho para esforço/ação crítica, verde para série salva, cronômetro de descanso visível e controles grandes no celular. O acompanhamento não exigirá voltar à guia de criação e não prescreverá cargas sem contexto nem incentivará treino com dor ou ausência de recuperação.

@@ -128,8 +128,82 @@ export const pointTransactions = mysqlTable("point_transactions", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const exerciseLibrary = mysqlTable("exercise_library", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  name: varchar("name", { length: 160 }).notNull(),
+  muscleGroup: varchar("muscleGroup", { length: 80 }).notNull(),
+  description: text("description"),
+  equipment: varchar("equipment", { length: 120 }),
+  demonstrationUrl: varchar("demonstrationUrl", { length: 500 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const trainingPlans = mysqlTable("training_plans", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  name: varchar("name", { length: 160 }).notNull(),
+  category: varchar("category", { length: 80 }).default("Musculação").notNull(),
+  modality: varchar("modality", { length: 40 }).default("musculacao").notNull(),
+  weekdays: varchar("weekdays", { length: 80 }).default("").notNull(),
+  active: boolean("active").default(true).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const trainingExercises = mysqlTable("training_exercises", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  planId: int("planId").notNull().references(() => trainingPlans.id),
+  libraryId: int("libraryId"),
+  name: varchar("name", { length: 160 }).notNull(),
+  muscleGroup: varchar("muscleGroup", { length: 80 }).notNull(),
+  equipment: varchar("equipment", { length: 120 }),
+  description: text("description"),
+  sortOrder: int("sortOrder").default(0).notNull(),
+  plannedSets: int("plannedSets").default(3).notNull(),
+  plannedReps: int("plannedReps").default(10).notNull(),
+  plannedWeightKg: int("plannedWeightKg").default(0).notNull(),
+  restSeconds: int("restSeconds").default(90).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const trainingSessions = mysqlTable("training_sessions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  planId: int("planId").notNull().references(() => trainingPlans.id),
+  sessionDate: date("sessionDate").notNull(),
+  startedAt: timestamp("startedAt").notNull(),
+  endedAt: timestamp("endedAt"),
+  status: varchar("status", { length: 24 }).default("in_progress").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const trainingSets = mysqlTable("training_sets", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  sessionId: int("sessionId").notNull().references(() => trainingSessions.id),
+  exerciseId: int("exerciseId").notNull().references(() => trainingExercises.id),
+  setNumber: int("setNumber").notNull(),
+  plannedReps: int("plannedReps").notNull(),
+  plannedWeightKg: int("plannedWeightKg").default(0).notNull(),
+  actualReps: int("actualReps").default(0).notNull(),
+  actualWeightKg: int("actualWeightKg").default(0).notNull(),
+  completed: boolean("completed").default(false).notNull(),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Habit = typeof habits.$inferSelect;
 export type Task = typeof tasks.$inferSelect;
 export type Goal = typeof goals.$inferSelect;
+export type TrainingPlan = typeof trainingPlans.$inferSelect;
+export type TrainingExercise = typeof trainingExercises.$inferSelect;
+export type TrainingSession = typeof trainingSessions.$inferSelect;
+export type TrainingSet = typeof trainingSets.$inferSelect;

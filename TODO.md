@@ -69,3 +69,12 @@
 - [x] **Gráfico de linha do painel:** o dashboard passou a consumir a série diária real de 14 dias, com pontos de hábitos/tarefas deduplicados, em vez de apenas cards/barras decorativas.
 - [x] **Validação:** `pnpm check`, `pnpm test` (9 testes) e `pnpm build` passaram; Preview respondeu 200 em `/api/health` e `/manus-routes.json`; fluxo autenticado de tarefas e metas foi revisado no navegador; guias de criação foram abertas e a ausência de prioridade foi confirmada.
 - [ ] **Pendência de produto:** registros antigos com categorias digitadas livremente continuam preservados e aparecem como categorias legadas; se desejado, a próxima etapa pode oferecer migração assistida para as categorias oficiais, sem apagar histórico.
+
+## Entrega 2026-10-30 — Treinos em três guias
+
+- [x] **Visão geral de Treinos:** `/treinos` apresenta fichas ativas, dias programados, treino de hoje, sessões da semana, total histórico e últimas sessões persistentes.
+- [x] **Criação de fichas:** é possível criar fichas com nome, categoria, modalidade e dias da semana; cada ficha aceita exercícios com grupo muscular, equipamento, séries, repetições, carga inicial e descanso, com exclusão persistente.
+- [x] **Acompanhamento em tempo real:** a terceira guia abre uma sessão persistente, cria séries planejadas no servidor, permite registrar repetições/carga, concluir cada série, iniciar descanso configurado ou de 60 segundos e finalizar a sessão.
+- [x] **Pontuação e metas:** uma sessão concluída gera uma transação idempotente de +5 pontos e pode alimentar o acompanhamento automático de metas por registros de treino, sem duplicar pontuação por reabertura.
+- [x] **Responsividade:** a execução usa controles grandes, cartões empilhados e cabeçalho de progresso para uso em 375px, sem rolagem lateral.
+- [ ] **Evolução avançada:** gráficos de volume/recordes, medidas corporais, fotos, cardio e biblioteca inicial de exercícios por grupo muscular ainda podem ser ampliados sobre a estrutura persistente criada.

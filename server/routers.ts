@@ -10,6 +10,11 @@ import {
   moduleRecords,
   pointTransactions,
   tasks,
+  exerciseLibrary,
+  trainingExercises,
+  trainingPlans,
+  trainingSessions,
+  trainingSets,
   userSettings,
 } from "../drizzle/schema";
 import { getDb } from "./db";
@@ -152,6 +157,25 @@ const goalInput = z.object({
   deadline: daySchema.nullable().optional(),
   automationType: z.enum(["manual", "habit", "tasks", "focus", "training", "nutrition"]).default("manual"),
   automationRefId: z.number().int().positive().nullable().optional(),
+});
+
+const trainingPlanInput = z.object({
+  name: z.string().trim().min(2).max(160),
+  category: z.string().trim().min(2).max(80),
+  modality: z.enum(["musculacao", "calistenia", "casa", "cardio", "mobilidade"]),
+  weekdays: z.array(z.number().int().min(0).max(6)).max(7),
+});
+
+const trainingExerciseInput = z.object({
+  planId: idSchema,
+  name: z.string().trim().min(2).max(160),
+  muscleGroup: z.string().trim().min(2).max(80),
+  equipment: z.string().trim().max(120).optional(),
+  description: z.string().trim().max(500).optional(),
+  plannedSets: z.number().int().min(1).max(30),
+  plannedReps: z.number().int().min(1).max(200),
+  plannedWeightKg: z.number().int().min(0).max(2000),
+  restSeconds: z.number().int().min(0).max(3600),
 });
 
 export const appRouter = router({
@@ -448,6 +472,115 @@ export const appRouter = router({
       if (existing[0].status === "redeemed") throw new TRPCError({ code: "BAD_REQUEST", message: "Esta recompensa já foi resgatada." });
       await db.insert(pointTransactions).values({ userId: ctx.user.id, points: input.points, reason: `Resgate: ${existing[0].title}`, referenceId: input.id });
       await db.update(moduleRecords).set({ status: "redeemed" }).where(eq(moduleRecords.id, input.id));
+      return { success: true } as const;
+    }),
+  }),
+
+  training: router({
+    overview: protectedProcedure.query(async ({ ctx }) => {
+      const db = await requireDb();
+      const [plans, exercises, sessions, library] = await Promise.all([
+        db.select().from(trainingPlans).where(and(eq(trainingPlans.userId, ctx.user.id), eq(trainingPlans.active, true))).orderBy(desc(trainingPlans.updatedAt)),
+        db.select().from(trainingExercises).where(eq(trainingExercises.userId, ctx.user.id)).orderBy(trainingExercises.sortOrder),
+        db.select().from(trainingSessions).where(eq(trainingSessions.userId, ctx.user.id)).orderBy(desc(trainingSessions.sessionDate), desc(trainingSessions.createdAt)),
+        db.select().from(exerciseLibrary).where(eq(exerciseLibrary.userId, ctx.user.id)).orderBy(exerciseLibrary.name),
+      ]);
+      const today = new Date();
+      const weekday = today.getDay();
+      const todayPlan = plans.find(plan => plan.weekdays.split(",").map(Number).includes(weekday)) ?? null;
+      const weekStart = new Date(today);
+      weekStart.setHours(0, 0, 0, 0);
+      weekStart.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+      const weekStartKey = weekStart.toISOString().slice(0, 10);
+      const weekSessions = sessions.filter(session => dateKey(session.sessionDate) >= weekStartKey && session.status === "completed");
+      const current = sessions.find(session => session.status === "in_progress") ?? null;
+      return {
+        plans: plans.map(plan => ({ ...plan, weekdays: plan.weekdays.split(",").filter(Boolean).map(Number), exercises: exercises.filter(item => item.planId === plan.id) })),
+        library,
+        todayPlan: todayPlan ? { ...todayPlan, weekdays: todayPlan.weekdays.split(",").filter(Boolean).map(Number), exercises: exercises.filter(item => item.planId === todayPlan.id) } : null,
+        currentSession: current,
+        lastCompleted: sessions.find(session => session.status === "completed") ?? null,
+        weekSessions: weekSessions.length,
+        totalSessions: sessions.filter(session => session.status === "completed").length,
+        history: sessions.filter(session => session.status === "completed").slice(0, 20),
+      };
+    }),
+    createPlan: protectedProcedure.input(trainingPlanInput).mutation(async ({ ctx, input }) => {
+      const db = await requireDb();
+      const inserted = await db.insert(trainingPlans).values({ userId: ctx.user.id, name: input.name, category: input.category, modality: input.modality, weekdays: input.weekdays.sort((a, b) => a - b).join(",") });
+      return { success: true, id: Number(inserted[0].insertId) } as const;
+    }),
+    updatePlan: protectedProcedure.input(trainingPlanInput.extend({ planId: idSchema })).mutation(async ({ ctx, input }) => {
+      const db = await requireDb();
+      await db.update(trainingPlans).set({ name: input.name, category: input.category, modality: input.modality, weekdays: input.weekdays.sort((a, b) => a - b).join(",") }).where(and(eq(trainingPlans.id, input.planId), eq(trainingPlans.userId, ctx.user.id)));
+      return { success: true } as const;
+    }),
+    deletePlan: protectedProcedure.input(z.object({ planId: idSchema })).mutation(async ({ ctx, input }) => {
+      const db = await requireDb();
+      await db.update(trainingPlans).set({ active: false }).where(and(eq(trainingPlans.id, input.planId), eq(trainingPlans.userId, ctx.user.id)));
+      return { success: true } as const;
+    }),
+    createExercise: protectedProcedure.input(trainingExerciseInput).mutation(async ({ ctx, input }) => {
+      const db = await requireDb();
+      const ownPlan = await db.select({ id: trainingPlans.id }).from(trainingPlans).where(and(eq(trainingPlans.id, input.planId), eq(trainingPlans.userId, ctx.user.id))).limit(1);
+      if (!ownPlan[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "A ficha não pertence à sua conta." });
+      const current = await db.select({ sortOrder: trainingExercises.sortOrder }).from(trainingExercises).where(and(eq(trainingExercises.planId, input.planId), eq(trainingExercises.userId, ctx.user.id))).orderBy(desc(trainingExercises.sortOrder)).limit(1);
+      const inserted = await db.insert(trainingExercises).values({ userId: ctx.user.id, planId: input.planId, name: input.name, muscleGroup: input.muscleGroup, equipment: input.equipment || null, description: input.description || null, sortOrder: (current[0]?.sortOrder ?? -1) + 1, plannedSets: input.plannedSets, plannedReps: input.plannedReps, plannedWeightKg: input.plannedWeightKg, restSeconds: input.restSeconds });
+      return { success: true, id: Number(inserted[0].insertId) } as const;
+    }),
+    deleteExercise: protectedProcedure.input(z.object({ exerciseId: idSchema })).mutation(async ({ ctx, input }) => {
+      const db = await requireDb();
+      await db.delete(trainingExercises).where(and(eq(trainingExercises.id, input.exerciseId), eq(trainingExercises.userId, ctx.user.id)));
+      return { success: true } as const;
+    }),
+    createLibraryExercise: protectedProcedure.input(z.object({ name: z.string().trim().min(2).max(160), muscleGroup: z.string().trim().min(2).max(80), equipment: z.string().trim().max(120).optional(), description: z.string().trim().max(500).optional(), demonstrationUrl: z.string().url().max(500).optional() })).mutation(async ({ ctx, input }) => {
+      const db = await requireDb();
+      const inserted = await db.insert(exerciseLibrary).values({ userId: ctx.user.id, name: input.name, muscleGroup: input.muscleGroup, equipment: input.equipment || null, description: input.description || null, demonstrationUrl: input.demonstrationUrl || null });
+      return { success: true, id: Number(inserted[0].insertId) } as const;
+    }),
+    startSession: protectedProcedure.input(z.object({ planId: idSchema, sessionDate: daySchema })).mutation(async ({ ctx, input }) => {
+      const db = await requireDb();
+      const ownPlan = await db.select({ id: trainingPlans.id }).from(trainingPlans).where(and(eq(trainingPlans.id, input.planId), eq(trainingPlans.userId, ctx.user.id), eq(trainingPlans.active, true))).limit(1);
+      if (!ownPlan[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Ficha de treino não encontrada." });
+      const open = await db.select({ id: trainingSessions.id }).from(trainingSessions).where(and(eq(trainingSessions.userId, ctx.user.id), eq(trainingSessions.status, "in_progress"))).limit(1);
+      if (open[0]) return { success: true, id: open[0].id } as const;
+      const inserted = await db.insert(trainingSessions).values({ userId: ctx.user.id, planId: input.planId, sessionDate: new Date(`${input.sessionDate}T00:00:00.000Z`), startedAt: new Date(), status: "in_progress" });
+      const sessionId = Number(inserted[0].insertId);
+      const exercises = await db.select().from(trainingExercises).where(and(eq(trainingExercises.planId, input.planId), eq(trainingExercises.userId, ctx.user.id))).orderBy(trainingExercises.sortOrder);
+      for (const exercise of exercises) {
+        for (let setNumber = 1; setNumber <= exercise.plannedSets; setNumber += 1) {
+          await db.insert(trainingSets).values({ userId: ctx.user.id, sessionId, exerciseId: exercise.id, setNumber, plannedReps: exercise.plannedReps, plannedWeightKg: exercise.plannedWeightKg });
+        }
+      }
+      return { success: true, id: sessionId } as const;
+    }),
+    session: protectedProcedure.input(z.object({ sessionId: idSchema })).query(async ({ ctx, input }) => {
+      const db = await requireDb();
+      const session = await db.select().from(trainingSessions).where(and(eq(trainingSessions.id, input.sessionId), eq(trainingSessions.userId, ctx.user.id))).limit(1);
+      if (!session[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Sessão não encontrada." });
+      const [sets, exercises] = await Promise.all([
+        db.select().from(trainingSets).where(and(eq(trainingSets.sessionId, input.sessionId), eq(trainingSets.userId, ctx.user.id))).orderBy(trainingSets.exerciseId, trainingSets.setNumber),
+        db.select().from(trainingExercises).where(and(eq(trainingExercises.planId, session[0].planId), eq(trainingExercises.userId, ctx.user.id))).orderBy(trainingExercises.sortOrder),
+      ]);
+      return { session: session[0], exercises, sets };
+    }),
+    saveSet: protectedProcedure.input(z.object({ sessionId: idSchema, exerciseId: idSchema, setNumber: z.number().int().positive(), actualReps: z.number().int().min(0).max(500), actualWeightKg: z.number().int().min(0).max(2000), completed: z.boolean() })).mutation(async ({ ctx, input }) => {
+      const db = await requireDb();
+      const ownSession = await db.select({ id: trainingSessions.id }).from(trainingSessions).where(and(eq(trainingSessions.id, input.sessionId), eq(trainingSessions.userId, ctx.user.id), eq(trainingSessions.status, "in_progress"))).limit(1);
+      if (!ownSession[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "A sessão não está aberta." });
+      const existing = await db.select({ id: trainingSets.id }).from(trainingSets).where(and(eq(trainingSets.sessionId, input.sessionId), eq(trainingSets.exerciseId, input.exerciseId), eq(trainingSets.setNumber, input.setNumber), eq(trainingSets.userId, ctx.user.id))).limit(1);
+      const values = { actualReps: input.actualReps, actualWeightKg: input.actualWeightKg, completed: input.completed, completedAt: input.completed ? new Date() : null };
+      if (existing[0]) await db.update(trainingSets).set(values).where(and(eq(trainingSets.id, existing[0].id), eq(trainingSets.userId, ctx.user.id)));
+      else await db.insert(trainingSets).values({ userId: ctx.user.id, sessionId: input.sessionId, exerciseId: input.exerciseId, setNumber: input.setNumber, plannedReps: input.actualReps, plannedWeightKg: input.actualWeightKg, ...values });
+      return { success: true } as const;
+    }),
+    finishSession: protectedProcedure.input(z.object({ sessionId: idSchema, notes: z.string().trim().max(1000).optional() })).mutation(async ({ ctx, input }) => {
+      const db = await requireDb();
+      const session = await db.select().from(trainingSessions).where(and(eq(trainingSessions.id, input.sessionId), eq(trainingSessions.userId, ctx.user.id))).limit(1);
+      if (!session[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Sessão não encontrada." });
+      await db.update(trainingSessions).set({ status: "completed", endedAt: new Date(), notes: input.notes || null }).where(and(eq(trainingSessions.id, input.sessionId), eq(trainingSessions.userId, ctx.user.id)));
+      const point = await db.select({ id: pointTransactions.id }).from(pointTransactions).where(and(eq(pointTransactions.userId, ctx.user.id), eq(pointTransactions.referenceId, input.sessionId))).limit(1);
+      if (!point[0]) await db.insert(pointTransactions).values({ userId: ctx.user.id, points: 5, reason: "Sessão de treino concluída", referenceId: input.sessionId });
       return { success: true } as const;
     }),
   }),
