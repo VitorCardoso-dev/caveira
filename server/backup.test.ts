@@ -1,0 +1,50 @@
+import { describe, expect, it } from "vitest";
+import { assertBackupRelationships, backupPayloadSchema } from "./backup";
+
+const row = (id: number, extra: Record<string, unknown> = {}) => ({ id, ...extra });
+
+describe("backup completo", () => {
+  it("aceita uma estrutura completa com relações de treino válidas", () => {
+    const payload = backupPayloadSchema.parse({
+      version: 2,
+      records: [],
+      habits: [row(1)],
+      habitCompletions: [row(2, { habitId: 1 })],
+      goals: [row(3, { automationType: "habit", automationRefId: 1 })],
+      tasks: [row(4, { goalId: 3 })],
+      exerciseLibrary: [row(5)],
+      trainingPlans: [row(6)],
+      trainingExercises: [row(7, { planId: 6, libraryId: 5 })],
+      trainingSessions: [row(8, { planId: 6 })],
+      trainingSets: [row(9, { sessionId: 8, exerciseId: 7 })],
+    });
+    expect(() => assertBackupRelationships(payload)).not.toThrow();
+  });
+
+  it("rejeita referências órfãs antes de iniciar a restauração", () => {
+    const payload = backupPayloadSchema.parse({
+      version: 2,
+      records: [],
+      habits: [row(1)],
+      habitCompletions: [row(2, { habitId: 99 })],
+    });
+    expect(() => assertBackupRelationships(payload)).toThrow("hábito inexistente");
+  });
+
+  it("rejeita séries ligadas a sessão ou exercício ausente", () => {
+    const payload = backupPayloadSchema.parse({
+      version: 2,
+      records: [],
+      trainingPlans: [row(1)],
+      trainingExercises: [row(2, { planId: 1 })],
+      trainingSessions: [row(3, { planId: 1 })],
+      trainingSets: [row(4, { sessionId: 3, exerciseId: 999 })],
+    });
+    expect(() => assertBackupRelationships(payload)).toThrow("sessão ou exercício inexistente");
+  });
+
+  it("limita o tamanho de coleções para não aceitar backups abusivos", () => {
+    const result = backupPayloadSchema.safeParse({ version: 2, records: Array.from({ length: 5001 }, (_, id) => row(id + 1)) });
+    expect(result.success).toBe(false);
+  });
+});
