@@ -19,6 +19,8 @@
 - Tarefas com prazo agora desaparecem da fila no dia seguinte ao vencimento, não podem ser concluídas retroativamente e descontam do placar; o layout global bloqueia rolagem horizontal em telas pequenas.
 - Navegação principal simplificada: Foco, Treinos, Alimentação e Finanças continuam acessíveis por rota direta, mas foram retirados das abas e dos atalhos visíveis.
 - Pontuação semanal realista: hábitos concluídos valem +2, tarefas baixa/média/alta +3/+5/+8, tarefas vencidas −2/−3/−5, metas concluídas +8 e foco +1 por bloco de 25 minutos com limite semanal; o relatório mostra ganhos, perdas, cumprimento e saldo, e recompensas podem consumir a carteira.
+- Metas automáticas reais: cada meta pode ser manual ou acompanhar um hábito específico, tarefas concluídas, minutos de foco, registros de treino ou registros de alimentação; o servidor calcula o progresso a partir dos registros persistidos, limita ao alvo e bloqueia edição manual em metas automáticas.
+- Auditoria de qualidade: 9 testes automatizados passam, build/check/migração/health/rotas foram verificados, e capturas foram executadas em 375×812, 768×1024 e 1280×720; a auditoria autenticada dos módulos permanece aberta porque as capturas desta rodada não tinham sessão.
 - O checklist abaixo permanece aberto onde ainda faltam recorrência avançada, subtarefas, banco de exercícios/alimentos, água, receitas, orçamentos, carteira de recompensas e relatórios comparativos completos.
 
 ## Fase 2 — Hábitos, tarefas, metas e foco

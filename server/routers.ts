@@ -61,6 +61,31 @@ const POINTS = { habitDone: 2, habitMissed: -1, taskLow: 3, taskMedium: 5, taskH
 function weekStartKey(today: string) { const date = new Date(`${today}T12:00:00Z`); date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7)); return date.toISOString().slice(0, 10); }
 function pointsForPriority(priority: "low" | "medium" | "high", overdue = false) { if (overdue) return priority === "high" ? POINTS.taskOverdueHigh : priority === "medium" ? POINTS.taskOverdueMedium : POINTS.taskOverdueLow; return priority === "high" ? POINTS.taskHigh : priority === "medium" ? POINTS.taskMedium : POINTS.taskLow; }
 
+export function calculateGoalProgress(goal: { automationType: string; automationRefId: number | null; progress: number; target: number; automationStartDate: Date | string | null; createdAt: Date | string }, source: { habitCompletions: Array<{ habitId: number; day: Date | string; status: string }>; tasks: Array<{ status: string; updatedAt: Date | string }>; focus: Array<{ durationMinutes: number; createdAt: Date | string }>; trainingDates: Array<Date | string>; nutritionDates: Array<Date | string> }, today: string) {
+  const start = dateKey(goal.automationStartDate ?? goal.createdAt);
+  const inRange = (value: Date | string | null | undefined) => { if (!value) return false; const day = dateKey(value); return day >= start && day <= today; };
+  let progress = goal.progress;
+  if (goal.automationType === "habit") progress = source.habitCompletions.filter(item => item.status === "completed" && item.habitId === goal.automationRefId && inRange(item.day)).length;
+  if (goal.automationType === "tasks") progress = source.tasks.filter(item => item.status === "completed" && inRange(item.updatedAt)).length;
+  if (goal.automationType === "focus") progress = source.focus.filter(item => inRange(item.createdAt)).reduce((sum, item) => sum + item.durationMinutes, 0);
+  if (goal.automationType === "training") progress = source.trainingDates.filter(inRange).length;
+  if (goal.automationType === "nutrition") progress = source.nutritionDates.filter(inRange).length;
+  return Math.min(goal.target, Math.max(0, progress));
+}
+
+async function hydrateGoalProgress(db: Awaited<ReturnType<typeof requireDb>>, userId: number, rows: typeof goals.$inferSelect[], today: string) {
+  const [completions, taskRows, focusRows, records] = await Promise.all([
+    db.select().from(habitCompletions).where(eq(habitCompletions.userId, userId)),
+    db.select().from(tasks).where(eq(tasks.userId, userId)),
+    db.select().from(focusSessions).where(eq(focusSessions.userId, userId)),
+    db.select().from(moduleRecords).where(eq(moduleRecords.userId, userId)),
+  ]);
+  return rows.map(goal => {
+    const bounded = calculateGoalProgress(goal, { habitCompletions: completions, tasks: taskRows, focus: focusRows, trainingDates: records.filter(item => item.module === "treinos").map(item => item.recordDate ?? item.createdAt), nutritionDates: records.filter(item => item.module === "alimentacao").map(item => item.recordDate ?? item.createdAt) }, today);
+    return { ...goal, progress: bounded, computedStatus: goal.automationType !== "manual" && bounded >= goal.target ? "completed" : goal.status, isOverdue: Boolean(goal.deadline && dateKey(goal.deadline) < today && bounded < goal.target) };
+  });
+}
+
 function decodeDetails(raw: string | null) {
   if (!raw) return {};
   try {
@@ -109,6 +134,8 @@ const goalInput = z.object({
   category: z.string().trim().max(80).optional(),
   target: z.number().int().min(1).max(1000000).default(100),
   deadline: daySchema.nullable().optional(),
+  automationType: z.enum(["manual", "habit", "tasks", "focus", "training", "nutrition"]).default("manual"),
+  automationRefId: z.number().int().positive().nullable().optional(),
 });
 
 export const appRouter = router({
@@ -214,12 +241,13 @@ export const appRouter = router({
           ...focusRows.map(item => dateKey(item.createdAt)),
         ])).sort();
 
+        const hydratedGoals = await hydrateGoalProgress(db, userId, goalRows, input.today);
         return {
           user: ctx.user,
           score,
           habits: habitSummary,
           tasks: openTasks,
-          goals: goalRows.slice(0, 4),
+          goals: hydratedGoals.slice(0, 4),
           counts: {
             habits: habitRows.length,
             completedHabitsToday: todayCompleted.size,
@@ -304,16 +332,19 @@ export const appRouter = router({
   goals: router({
     create: protectedProcedure.input(goalInput).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
-      await db.insert(goals).values({ userId: ctx.user.id, title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null });
+      await db.insert(goals).values({ userId: ctx.user.id, title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null, automationType: input.automationType, automationRefId: input.automationType === "habit" ? input.automationRefId ?? null : null, automationStartDate: input.automationType === "manual" ? null : new Date() });
       return { success: true } as const;
     }),
     update: protectedProcedure.input(goalInput.extend({ goalId: idSchema, status: z.enum(["active", "completed", "paused"]).optional() })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
-      await db.update(goals).set({ title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null, status: input.status ?? "active" }).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)));
+      await db.update(goals).set({ title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null, automationType: input.automationType, automationRefId: input.automationType === "habit" ? input.automationRefId ?? null : null, automationStartDate: input.automationType === "manual" ? null : new Date(), status: input.status ?? "active" }).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)));
       return { success: true } as const;
     }),
     updateProgress: protectedProcedure.input(z.object({ goalId: idSchema, progress: z.number().int().min(0).max(1000000) })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
+      const existing = await db.select({ automationType: goals.automationType }).from(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id))).limit(1);
+      if (!existing[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Meta não encontrada." });
+      if (existing[0].automationType !== "manual") throw new TRPCError({ code: "BAD_REQUEST", message: "O progresso desta meta é atualizado pelos registros reais." });
       await db.update(goals).set({ progress: input.progress, status: input.progress >= 100 ? "completed" : "active" }).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)));
       return { success: true } as const;
     }),
