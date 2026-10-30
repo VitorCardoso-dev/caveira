@@ -82,7 +82,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .module-tab { display: inline-flex; min-width: 0; flex: 1; align-items: center; justify-content: center; gap: 8px; border-radius: 11px; padding: 11px 14px; color: #96959d; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; transition: color .18s, background .18s, transform .18s; }
   .module-tab:hover { color: #f2f0ec; background: #1b1b20; }
   .module-tab.active { color: #0b0b0d; background: #f2f0ec; box-shadow: 0 5px 18px rgba(0,0,0,.24); }
-  .goal-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .goal-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
   .goal-card { overflow: hidden; border: 1px solid #29292f; border-radius: 22px; background: #121216; transition: transform .2s, border-color .2s; }
   .goal-card:hover { transform: translateY(-3px); border-color: #565660; }
   .goal-visual { position: relative; display: flex; min-height: 148px; align-items: flex-end; justify-content: space-between; overflow: hidden; padding: 16px; }
@@ -93,6 +93,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .goal-visual-warm { background: radial-gradient(circle at 78% 18%, rgba(255,177,91,.62), transparent 42%), linear-gradient(135deg, #48251b, #161112 72%); }
   .goal-visual-red { background: radial-gradient(circle at 78% 18%, rgba(229,57,53,.72), transparent 42%), linear-gradient(135deg, #46191b, #150f12 72%); }
   .goal-visual-purple { background: radial-gradient(circle at 78% 18%, rgba(135,112,238,.62), transparent 42%), linear-gradient(135deg, #292345, #111116 72%); }
+  .goal-visual-yellow { background: radial-gradient(circle at 78% 18%, rgba(246,204,105,.68), transparent 42%), linear-gradient(135deg, #49391c, #15130f 72%); }
   .goal-image { inset: 0; width: 100% !important; height: 100% !important; border-radius: 0 !important; opacity: .72 !important; filter: saturate(.9) contrast(1.08) !important; transform: none !important; }
   .exercise-thumb { position: relative; display: flex; width: 42px; height: 42px; flex: 0 0 42px; align-items: center; justify-content: center; overflow: hidden; border-radius: 13px; border: 1px solid #29292f; background: #17171c; color: #cfcdd0; }
   .exercise-thumb img { width: 100%; height: 100%; object-fit: cover; opacity: .82; }
@@ -138,7 +139,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .module-tab { gap: 5px; padding: 10px 7px; font-size: 9px; letter-spacing: .03em; }
   .category-picker { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
   .category-chip { padding: 8px; font-size: 10px; }
-  .goal-card-grid { grid-template-columns: 1fr; }
+  .goal-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .goal-visual { min-height: 104px; padding: 11px; }
+  .goal-card h3 { display: -webkit-box; overflow: hidden; font-size: 14px; line-height: 1.15; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 }
 
 @media (min-width: 641px) and (max-width: 1000px) { .goal-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

@@ -158,14 +158,16 @@ const goalVisuals = {
   nutrition: "/manus-storage/async-images/ffqo7DU0uOQADxrV9HONoc/image-3.webp",
   study: "/manus-storage/async-images/ffqo7DU0uOQADxrV9HONoc/image-4.webp",
   career: "/manus-storage/async-images/ffqo7DU0uOQADxrV9HONoc/image-5.webp",
+  finance: "/manus-storage/async-images/w5n9tXWz7gn7jh7cuG2W96/image-1.webp",
 } as const;
 
 function visualForGoal(title: string, category?: string | null) {
   const value = `${title} ${category ?? ""}`.toLowerCase();
+  if (/finance|dinheir|econom|guardar|juntar|poupan|real/.test(value)) return { image: goalVisuals.finance, tone: "goal-visual-yellow" };
   if (/moto|motocic|veículo/.test(value)) return { image: goalVisuals.motorcycle, tone: "goal-visual-red" };
   if (/aliment|nutri|dieta|comida|saúde/.test(value)) return { image: goalVisuals.nutrition, tone: "goal-visual-warm" };
   if (/estud|curso|livro|prova|mente/.test(value)) return { image: goalVisuals.study, tone: "goal-visual-purple" };
-  if (/trabalho|carreira|profiss|negócio|finance/.test(value)) return { image: goalVisuals.career, tone: "goal-visual-red" };
+  if (/trabalho|carreira|profiss|negócio/.test(value)) return { image: goalVisuals.career, tone: "goal-visual-red" };
   if (/físic|trein|corpo|academ|força/.test(value)) return { image: goalVisuals.physical, tone: "goal-visual-green" };
   return { image: goalVisuals.career, tone: "goal-visual-green" };
 }
