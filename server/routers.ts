@@ -23,7 +23,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
-import { asDate, assertBackupRelationships, backupPayloadSchema, optionalNumber, optionalString, requiredNumber, requiredString, rowId } from "./backup";
+import { asDate, assertBackupRelationships, backupPayloadSchema, optionalNumber, optionalString, remapPointReference, requiredNumber, requiredString, rowId } from "./backup";
 
 const daySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida");
 const idSchema = z.number().int().positive();
@@ -870,7 +870,7 @@ export const appRouter = router({
         for (const row of payload.pointTransactions) {
           const reason = requiredString(row, "reason", "Pontuação");
           const oldRef = optionalNumber(row, "referenceId");
-          const referenceId = reason.startsWith("Sessão de treino") && oldRef !== null ? maps.sessions.get(oldRef) ?? null : null;
+          const referenceId = remapPointReference(reason, oldRef, maps);
           await tx.insert(pointTransactions).values({ userId, points: requiredNumber(row, "points", "Pontuação"), reason, referenceId }); count.pointTransactions += 1;
         }
         for (const row of payload.auditLogs) {

@@ -94,3 +94,10 @@ export function assertBackupRelationships(payload: BackupPayload) {
     if (!sessionIds.has(requiredNumber(row, "sessionId", "Série")) || !exerciseIds.has(requiredNumber(row, "exerciseId", "Série"))) throw new Error("O backup contém uma série ligada a uma sessão ou exercício inexistente.");
   }
 }
+
+export function remapPointReference(reason: string, oldReferenceId: number | null, maps: { sessions: Map<number, number>; records: Map<number, number> }) {
+  if (oldReferenceId === null) return null;
+  if (reason.startsWith("Sessão de treino")) return maps.sessions.get(oldReferenceId) ?? null;
+  if (reason.startsWith("Resgate:")) return maps.records.get(oldReferenceId) ?? null;
+  return null;
+}

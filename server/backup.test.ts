@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertBackupRelationships, backupPayloadSchema } from "./backup";
+import { assertBackupRelationships, backupPayloadSchema, remapPointReference } from "./backup";
 
 const row = (id: number, extra: Record<string, unknown> = {}) => ({ id, ...extra });
 
@@ -46,5 +46,12 @@ describe("backup completo", () => {
   it("limita o tamanho de coleções para não aceitar backups abusivos", () => {
     const result = backupPayloadSchema.safeParse({ version: 2, records: Array.from({ length: 5001 }, (_, id) => row(id + 1)) });
     expect(result.success).toBe(false);
+  });
+
+  it("remapeia referências de pontos de treino e de resgate", () => {
+    const maps = { sessions: new Map([[10, 110]]), records: new Map([[20, 220]]) };
+    expect(remapPointReference("Sessão de treino concluída", 10, maps)).toBe(110);
+    expect(remapPointReference("Resgate: cinema", 20, maps)).toBe(220);
+    expect(remapPointReference("Ação desconhecida", 20, maps)).toBeNull();
   });
 });
