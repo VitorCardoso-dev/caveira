@@ -52,6 +52,7 @@ export const tasks = mysqlTable("tasks", {
   priority: mysqlEnum("priority", ["low", "medium", "high"]).default("medium").notNull(),
   status: mysqlEnum("status", ["todo", "in_progress", "completed"]).default("todo").notNull(),
   dueDate: date("dueDate"),
+  goalId: int("goalId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

@@ -61,12 +61,12 @@ const POINTS = { habitDone: 2, habitMissed: -1, taskLow: 3, taskMedium: 5, taskH
 function weekStartKey(today: string) { const date = new Date(`${today}T12:00:00Z`); date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7)); return date.toISOString().slice(0, 10); }
 function pointsForPriority(priority: "low" | "medium" | "high", overdue = false) { if (overdue) return priority === "high" ? POINTS.taskOverdueHigh : priority === "medium" ? POINTS.taskOverdueMedium : POINTS.taskOverdueLow; return priority === "high" ? POINTS.taskHigh : priority === "medium" ? POINTS.taskMedium : POINTS.taskLow; }
 
-export function calculateGoalProgress(goal: { automationType: string; automationRefId: number | null; progress: number; target: number; automationStartDate: Date | string | null; createdAt: Date | string }, source: { habitCompletions: Array<{ habitId: number; day: Date | string; status: string }>; tasks: Array<{ status: string; updatedAt: Date | string }>; focus: Array<{ durationMinutes: number; createdAt: Date | string }>; trainingDates: Array<Date | string>; nutritionDates: Array<Date | string> }, today: string) {
+export function calculateGoalProgress(goal: { automationType: string; automationRefId: number | null; progress: number; target: number; automationStartDate: Date | string | null; createdAt: Date | string }, source: { habitCompletions: Array<{ habitId: number; day: Date | string; status: string }>; tasks: Array<{ status: string; updatedAt: Date | string; goalId?: number | null }>; focus: Array<{ durationMinutes: number; createdAt: Date | string }>; trainingDates: Array<Date | string>; nutritionDates: Array<Date | string> }, today: string) {
   const start = dateKey(goal.automationStartDate ?? goal.createdAt);
   const inRange = (value: Date | string | null | undefined) => { if (!value) return false; const day = dateKey(value); return day >= start && day <= today; };
   let progress = goal.progress;
   if (goal.automationType === "habit") progress = source.habitCompletions.filter(item => item.status === "completed" && item.habitId === goal.automationRefId && inRange(item.day)).length;
-  if (goal.automationType === "tasks") progress = source.tasks.filter(item => item.status === "completed" && inRange(item.updatedAt)).length;
+  if (goal.automationType === "tasks") progress = source.tasks.filter(item => item.status === "completed" && inRange(item.updatedAt) && (goal.automationRefId == null || item.goalId === goal.automationRefId)).length;
   if (goal.automationType === "focus") progress = source.focus.filter(item => inRange(item.createdAt)).reduce((sum, item) => sum + item.durationMinutes, 0);
   if (goal.automationType === "training") progress = source.trainingDates.filter(inRange).length;
   if (goal.automationType === "nutrition") progress = source.nutritionDates.filter(inRange).length;
@@ -127,6 +127,7 @@ const taskInput = z.object({
   category: z.string().trim().max(80).optional(),
   priority: z.enum(["low", "medium", "high"]).default("medium"),
   dueDate: daySchema.nullable().optional(),
+  goalId: idSchema.nullable().optional(),
 });
 
 const goalInput = z.object({
@@ -247,7 +248,7 @@ export const appRouter = router({
           score,
           habits: habitSummary,
           tasks: openTasks,
-          goals: hydratedGoals.slice(0, 4),
+          goals: hydratedGoals,
           counts: {
             habits: habitRows.length,
             completedHabitsToday: todayCompleted.size,
@@ -303,12 +304,20 @@ export const appRouter = router({
   tasks: router({
     create: protectedProcedure.input(taskInput).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
-      await db.insert(tasks).values({ userId: ctx.user.id, title: input.title, category: input.category || "Geral", priority: input.priority, dueDate: input.dueDate ? new Date(`${input.dueDate}T00:00:00.000Z`) : null });
+      if (input.goalId) {
+        const ownGoal = await db.select({ id: goals.id }).from(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id))).limit(1);
+        if (!ownGoal[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "A meta selecionada não pertence à sua conta." });
+      }
+      await db.insert(tasks).values({ userId: ctx.user.id, title: input.title, category: input.category || "Geral", priority: input.priority, dueDate: input.dueDate ? new Date(`${input.dueDate}T00:00:00.000Z`) : null, goalId: input.goalId ?? null });
       return { success: true } as const;
     }),
     update: protectedProcedure.input(taskInput.extend({ taskId: idSchema, status: z.enum(["todo", "in_progress", "completed"]).optional() })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
-      await db.update(tasks).set({ title: input.title, category: input.category || "Geral", priority: input.priority, dueDate: input.dueDate ? new Date(`${input.dueDate}T00:00:00.000Z`) : null, status: input.status ?? "todo" }).where(and(eq(tasks.id, input.taskId), eq(tasks.userId, ctx.user.id)));
+      if (input.goalId) {
+        const ownGoal = await db.select({ id: goals.id }).from(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id))).limit(1);
+        if (!ownGoal[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "A meta selecionada não pertence à sua conta." });
+      }
+      await db.update(tasks).set({ title: input.title, category: input.category || "Geral", priority: input.priority, dueDate: input.dueDate ? new Date(`${input.dueDate}T00:00:00.000Z`) : null, goalId: input.goalId ?? null, status: input.status ?? "todo" }).where(and(eq(tasks.id, input.taskId), eq(tasks.userId, ctx.user.id)));
       return { success: true } as const;
     }),
     toggleComplete: protectedProcedure.input(z.object({ taskId: idSchema, completed: z.boolean(), today: daySchema.optional() })).mutation(async ({ ctx, input }) => {
@@ -332,7 +341,8 @@ export const appRouter = router({
   goals: router({
     create: protectedProcedure.input(goalInput).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
-      await db.insert(goals).values({ userId: ctx.user.id, title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null, automationType: input.automationType, automationRefId: input.automationType === "habit" ? input.automationRefId ?? null : null, automationStartDate: input.automationType === "manual" ? null : new Date() });
+      const inserted = await db.insert(goals).values({ userId: ctx.user.id, title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null, automationType: input.automationType, automationRefId: input.automationType === "habit" ? input.automationRefId ?? null : null, automationStartDate: input.automationType === "manual" ? null : new Date() });
+      if (input.automationType === "tasks") await db.update(goals).set({ automationRefId: Number(inserted[0].insertId) }).where(and(eq(goals.id, Number(inserted[0].insertId)), eq(goals.userId, ctx.user.id)));
       return { success: true } as const;
     }),
     update: protectedProcedure.input(goalInput.extend({ goalId: idSchema, status: z.enum(["active", "completed", "paused"]).optional() })).mutation(async ({ ctx, input }) => {

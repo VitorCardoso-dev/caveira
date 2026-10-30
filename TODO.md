@@ -21,6 +21,8 @@
 - Pontuação semanal realista: hábitos concluídos valem +2, tarefas baixa/média/alta +3/+5/+8, tarefas vencidas −2/−3/−5, metas concluídas +8 e foco +1 por bloco de 25 minutos com limite semanal; o relatório mostra ganhos, perdas, cumprimento e saldo, e recompensas podem consumir a carteira.
 - Metas automáticas reais: cada meta pode ser manual ou acompanhar um hábito específico, tarefas concluídas, minutos de foco, registros de treino ou registros de alimentação; o servidor calcula o progresso a partir dos registros persistidos, limita ao alvo e bloqueia edição manual em metas automáticas.
 - Auditoria de qualidade: 9 testes automatizados passam, build/check/migração/health/rotas foram verificados, e capturas foram executadas em 375×812, 768×1024 e 1280×720; a auditoria autenticada dos módulos permanece aberta porque as capturas desta rodada não tinham sessão.
+- Vínculo tarefa-meta corrigido e testado autenticado: metas do tipo “tarefas concluídas” recebem um ID próprio, tarefas podem selecioná-las no cadastro, o servidor valida que a meta pertence ao mesmo usuário e a conclusão atualiza o progresso de 0/1 para 1/1 sem ultrapassar o alvo.
+- Categorias predefinidas adicionadas aos cadastros de hábitos, tarefas e metas, incluindo Físico, Alimentação, Saúde, Mente, Estudos, Trabalho, Financeiro, Desenvolvimento pessoal, Relacionamentos e Outros.
 - O checklist abaixo permanece aberto onde ainda faltam recorrência avançada, subtarefas, banco de exercícios/alimentos, água, receitas, orçamentos, carteira de recompensas e relatórios comparativos completos.
 
 ## Fase 2 — Hábitos, tarefas, metas e foco

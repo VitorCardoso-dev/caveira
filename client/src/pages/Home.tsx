@@ -33,6 +33,8 @@ const navigation: Array<{ label: string; href: string; icon: LucideIcon }> = [
   { label: "Perfil", href: "/perfil", icon: UserRound },
 ];
 
+const CATEGORY_OPTIONS = ["Físico", "Alimentação", "Saúde", "Mente", "Estudos", "Trabalho", "Financeiro", "Desenvolvimento pessoal", "Relacionamentos", "Outros"];
+
 function localDayKey() {
   const now = new Date();
   const month = String(now.getMonth() + 1).padStart(2, "0");
@@ -66,10 +68,13 @@ function QuickDialog({ kind, onClose, onSaved }: { kind: "habit" | "task" | "goa
   const [category, setCategory] = useState("");
   const [priority, setPriority] = useState<"low" | "medium" | "high">("medium");
   const [target, setTarget] = useState("100");
+  const [automationType, setAutomationType] = useState<"manual" | "tasks">("manual");
+  const [taskGoalId, setTaskGoalId] = useState("");
   const [deadline, setDeadline] = useState("");
   const createHabit = trpc.habits.create.useMutation();
   const createTask = trpc.tasks.create.useMutation();
   const createGoal = trpc.goals.create.useMutation();
+  const snapshot = trpc.dashboard.snapshot.useQuery({ today: localDayKey() }, { refetchOnWindowFocus: false });
   const pending = createHabit.isPending || createTask.isPending || createGoal.isPending;
 
   const submit = async (event: FormEvent) => {
@@ -80,10 +85,10 @@ function QuickDialog({ kind, onClose, onSaved }: { kind: "habit" | "task" | "goa
         await createHabit.mutateAsync({ name, category: category || undefined, frequency: "daily" });
         toast.success("Hábito registrado.");
       } else if (kind === "task") {
-        await createTask.mutateAsync({ title: name, category: category || undefined, priority, dueDate: deadline || null });
+        await createTask.mutateAsync({ title: name, category: category || undefined, priority, dueDate: deadline || null, goalId: taskGoalId ? Number(taskGoalId) : null });
         toast.success("Tarefa registrada.");
       } else {
-        await createGoal.mutateAsync({ title: name, category: category || undefined, target: Number(target) || 100, deadline: deadline || null });
+        await createGoal.mutateAsync({ title: name, category: category || undefined, target: Number(target) || 100, deadline: deadline || null, automationType, automationRefId: null });
         toast.success("Meta registrada.");
       }
       onSaved();
@@ -104,9 +109,11 @@ function QuickDialog({ kind, onClose, onSaved }: { kind: "habit" | "task" | "goa
         </div>
         <form onSubmit={submit} className="space-y-4">
           <label className="field-label">{label}<input autoFocus value={name} onChange={event => setName(event.target.value)} className="field-input" placeholder={kind === "habit" ? "Ex.: leitura de 20 minutos" : kind === "task" ? "Ex.: revisar o planejamento da semana" : "Ex.: concluir o ciclo de treino"} /></label>
-          <label className="field-label">Categoria <input value={category} onChange={event => setCategory(event.target.value)} className="field-input" placeholder={kind === "goal" ? "Pessoal, físico, financeiro..." : "Disciplina, trabalho..."} /></label>
+          <label className="field-label">Categoria <select value={category} onChange={event => setCategory(event.target.value)} className="field-input"><option value="">Escolha uma categoria</option>{CATEGORY_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}</select></label>
           {kind === "task" && <label className="field-label">Prioridade<select value={priority} onChange={event => setPriority(event.target.value as typeof priority)} className="field-input"><option value="high">Alta</option><option value="medium">Média</option><option value="low">Baixa</option></select></label>}
           {kind === "goal" && <label className="field-label">Alvo mensurável <input type="number" min="1" value={target} onChange={event => setTarget(event.target.value)} className="field-input" /></label>}
+          {kind === "goal" && <label className="field-label">Atualização <select value={automationType} onChange={event => setAutomationType(event.target.value as typeof automationType)} className="field-input"><option value="manual">Manual</option><option value="tasks">Tarefas concluídas</option></select></label>}
+          {kind === "task" && <label className="field-label">Meta vinculada <select value={taskGoalId} onChange={event => setTaskGoalId(event.target.value)} className="field-input"><option value="">Nenhuma</option>{snapshot.data?.goals.filter(goal => goal.automationType === "tasks").map(goal => <option key={goal.id} value={goal.id}>{goal.title}</option>)}</select></label>}
           {(kind === "task" || kind === "goal") && <label className="field-label">Prazo <input type="date" value={deadline} onChange={event => setDeadline(event.target.value)} className="field-input" /></label>}
           <div className="flex justify-end gap-3 pt-3"><button type="button" onClick={onClose} className="button-secondary">Cancelar</button><button type="submit" disabled={pending || !name.trim()} className="button-primary">{pending ? "Salvando..." : "Salvar registro"}</button></div>
         </form>
