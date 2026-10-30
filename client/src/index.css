@@ -99,14 +99,31 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .exercise-thumb-green { border-color: rgba(183,243,107,.45); background: #202d1d; }
   .exercise-thumb-warm { border-color: rgba(255,177,91,.5); background: #3b2418; }
   .exercise-thumb-purple { border-color: rgba(135,112,238,.5); background: #28213e; }
+  .category-picker { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin-top: 9px; }
+  .category-chip { display: flex; min-width: 0; align-items: center; gap: 7px; border: 1px solid #29292f; border-radius: 13px; padding: 9px 10px; color: #aaa8b0; font-size: 11px; font-weight: 750; line-height: 1.2; text-align: left; transition: border-color .18s, background .18s, color .18s, transform .18s; }
+  .category-chip:hover { transform: translateY(-1px); color: #f2f0ec; }
+  .category-chip.selected { border-color: currentColor; background: rgba(255,255,255,.08); color: #f2f0ec; box-shadow: inset 0 0 0 1px currentColor; }
+  .category-chip span:nth-child(2) { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .category-chip svg { margin-left: auto; flex: 0 0 auto; }
+  .category-emoji { flex: 0 0 auto; font-size: 16px; line-height: 1; }
+  .category-chip-empty { color: #77757e; }
+  .category-chip-red { color: #ef7773; }
+  .category-chip-green { color: #b7f36b; }
+  .category-chip-purple { color: #b4a6ff; }
+  .category-chip-yellow { color: #f6cc69; }
+  .category-chip-orange { color: #ffad6c; }
+  .category-chip-blue { color: #79c9f5; }
+  .category-chip-pink { color: #f29bc7; }
+  .category-chip-gray { color: #aaa8b0; }
 }
 
-@media (max-width: 640px) {
-  .hero-card { min-height: 320px; padding: 23px; }
+@media (max-width: 640px) { .hero-card { min-height: 320px; padding: 23px; }
   .metric-card { min-height: 122px; padding: 13px; }
   .panel-card { padding: 17px; }
   .module-tabs { position: sticky; top: 10px; z-index: 10; margin-bottom: 18px; }
   .module-tab { gap: 5px; padding: 10px 7px; font-size: 9px; letter-spacing: .03em; }
+  .category-picker { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+  .category-chip { padding: 8px; font-size: 10px; }
   .goal-card-grid { grid-template-columns: 1fr; }
 }
 

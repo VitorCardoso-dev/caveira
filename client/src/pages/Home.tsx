@@ -21,8 +21,9 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { Link } from "wouter";
 import { toast } from "sonner";
-import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { CategoryPicker } from "@/components/CategoryPicker";
 
 const navigation: Array<{ label: string; href: string; icon: LucideIcon }> = [
   { label: "Painel", href: "/", icon: HomeIcon },
@@ -34,8 +35,6 @@ const navigation: Array<{ label: string; href: string; icon: LucideIcon }> = [
   { label: "Relatórios", href: "/relatorios", icon: BarChart3 },
   { label: "Perfil", href: "/perfil", icon: UserRound },
 ];
-
-const CATEGORY_OPTIONS = ["Alimentação", "Trabalho", "Estudos", "Financeiro", "Físico", "Saúde", "Desenvolvimento pessoal", "Hábitos", "Mente", "Relacionamentos", "Outros"];
 
 function localDayKey() {
   const now = new Date();
@@ -110,7 +109,7 @@ function QuickDialog({ kind, onClose, onSaved }: { kind: "habit" | "task" | "goa
         </div>
         <form onSubmit={submit} className="space-y-4">
           <label className="field-label">{label}<input autoFocus value={name} onChange={event => setName(event.target.value)} className="field-input" placeholder={kind === "habit" ? "Ex.: leitura de 20 minutos" : kind === "task" ? "Ex.: revisar o planejamento da semana" : "Ex.: concluir o ciclo de treino"} /></label>
-          <label className="field-label">Categoria <select value={category} onChange={event => setCategory(event.target.value)} className="field-input"><option value="">Escolha uma categoria</option>{CATEGORY_OPTIONS.map(option => <option key={option} value={option}>{option}</option>)}</select></label>
+          <div className="field-label">Categoria <CategoryPicker value={category} onChange={setCategory} /></div>
           {kind === "goal" && <label className="field-label">Alvo mensurável <input type="number" min="1" value={target} onChange={event => setTarget(event.target.value)} className="field-input" /></label>}
           {kind === "goal" && <label className="field-label">Atualização <select value={automationType} className="field-input" aria-label="Acompanhamento automático"><option value="tasks">Tarefas concluídas</option></select><span className="mt-2 block text-[10px] normal-case tracking-normal text-caveira-muted">Toda meta nova acompanha registros reais; tarefas vinculadas atualizam este progresso.</span></label>}
           {kind === "task" && <label className="field-label">Meta vinculada <select value={taskGoalId} onChange={event => setTaskGoalId(event.target.value)} className="field-input"><option value="">Nenhuma</option>{snapshot.data?.goals.filter(goal => goal.automationType === "tasks").map(goal => <option key={goal.id} value={goal.id}>{goal.title}</option>)}</select></label>}
