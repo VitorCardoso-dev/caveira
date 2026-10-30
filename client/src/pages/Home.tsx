@@ -99,7 +99,7 @@ function QuickDialog({ kind, onClose, onSaved }: { kind: "habit" | "task" | "goa
   };
 
   const title = kind === "habit" ? "Novo hábito" : kind === "task" ? "Nova tarefa" : "Nova meta";
-  const label = kind === "habit" ? "Nome do hábito" : kind === "task" ? "O que precisa ser feito?" : "Qual é a meta?";
+  const label = kind === "habit" ? "Nome do hábito" : kind === "task" ? "Nome da tarefa" : "Qual é a meta?";
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center" role="dialog" aria-modal="true">
       <div className="w-full max-w-lg rounded-3xl border border-caveira-border bg-caveira-panel p-6 shadow-2xl shadow-black/40">
