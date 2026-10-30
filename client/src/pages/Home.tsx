@@ -193,10 +193,10 @@ export default function Home() {
             {report?.dailyStats ? <LifeChart points={report.dailyStats} /> : <div className="panel-card"><p className="text-sm text-caveira-muted">O gráfico aparecerá assim que houver registros suficientes.</p></div>}
             <div className="panel-card flex flex-col justify-between"><div><p className="eyebrow">atalhos</p><h2 className="section-title">Registrar agora</h2><p className="mt-3 text-sm leading-6 text-caveira-muted">Alimente o painel com o que realmente aconteceu.</p></div><div className="mt-6 grid grid-cols-2 gap-2"><button onClick={() => setDialog("habit")} className="shortcut-button"><Activity size={16} /> hábito</button><button onClick={() => setDialog("task")} className="shortcut-button"><ListTodo size={16} /> tarefa</button><button onClick={() => setDialog("goal")} className="shortcut-button"><Target size={16} /> meta</button></div></div>
           </section>
-          <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <Link href="/treinos" className="panel-card transition hover:border-caveira-red"><p className="eyebrow">corpo</p><p className="mt-2 font-display text-2xl font-extrabold">{report?.counts.training ?? 0}</p><p className="mt-1 text-xs text-caveira-muted">registros de treino</p></Link>
-            <Link href="/alimentacao" className="panel-card transition hover:border-caveira-green"><p className="eyebrow">nutrição</p><p className="mt-2 font-display text-2xl font-extrabold">{report?.nutrition.caloriesToday ?? 0}</p><p className="mt-1 text-xs text-caveira-muted">kcal aproximadas hoje</p></Link>
-            <Link href="/financas" className="panel-card transition hover:border-caveira-red"><p className="eyebrow">finanças</p><p className="mt-2 font-display text-2xl font-extrabold">{money(report?.finance.balance ?? 0)}</p><p className="mt-1 text-xs text-caveira-muted">saldo observado no mês</p></Link>
+            
+            
             <Link href="/recompensas" className="panel-card transition hover:border-caveira-green"><p className="eyebrow">lazer</p><p className="mt-2 font-display text-2xl font-extrabold">{report?.records.filter(record => record.module === "recompensas").length ?? 0}</p><p className="mt-1 text-xs text-caveira-muted">recompensas cadastradas</p></Link>
             <Link href="/relatorios" className="panel-card transition hover:border-caveira-red"><p className="eyebrow">nível</p><p className="mt-2 font-display text-2xl font-extrabold">{report?.gamification.level ?? 1}</p><p className="mt-1 text-xs text-caveira-muted">{report?.gamification.xp ?? 0} XP acumulado</p></Link>
           </section>
