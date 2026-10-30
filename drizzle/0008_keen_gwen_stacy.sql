@@ -1,0 +1,2 @@
+ALTER TABLE `habit_completions` ADD CONSTRAINT `habit_completions_user_habit_day_uq` UNIQUE(`userId`,`habitId`,`day`);--> statement-breakpoint
+ALTER TABLE `training_sets` ADD CONSTRAINT `training_sets_session_exercise_set_uq` UNIQUE(`sessionId`,`exerciseId`,`setNumber`);

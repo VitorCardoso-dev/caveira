@@ -23,6 +23,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { asDate, assertBackupRelationships, backupPayloadSchema, optionalNumber, optionalString, requiredNumber, requiredString, rowId } from "./backup";
 
 const daySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida");
 const idSchema = z.number().int().positive();
@@ -339,6 +340,8 @@ export const appRouter = router({
     }),
     update: protectedProcedure.input(habitInput.extend({ habitId: idSchema, active: z.boolean().optional() })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
+      const own = await db.select({ id: habits.id }).from(habits).where(and(eq(habits.id, input.habitId), eq(habits.userId, ctx.user.id))).limit(1);
+      if (!own[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Hábito não encontrado." });
       await db.update(habits).set({ name: input.name, category: input.category || "Disciplina", frequency: input.frequency, active: input.active ?? true }).where(and(eq(habits.id, input.habitId), eq(habits.userId, ctx.user.id)));
       return { success: true } as const;
     }),
@@ -357,6 +360,8 @@ export const appRouter = router({
     }),
     delete: protectedProcedure.input(z.object({ habitId: idSchema })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
+      const own = await db.select({ id: habits.id }).from(habits).where(and(eq(habits.id, input.habitId), eq(habits.userId, ctx.user.id))).limit(1);
+      if (!own[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Hábito não encontrado." });
       await db.update(habits).set({ active: false }).where(and(eq(habits.id, input.habitId), eq(habits.userId, ctx.user.id)));
       return { success: true } as const;
     }),
@@ -374,6 +379,8 @@ export const appRouter = router({
     }),
     update: protectedProcedure.input(taskInput.extend({ taskId: idSchema, status: z.enum(["todo", "in_progress", "completed"]).optional() })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
+      const ownTask = await db.select({ id: tasks.id }).from(tasks).where(and(eq(tasks.id, input.taskId), eq(tasks.userId, ctx.user.id))).limit(1);
+      if (!ownTask[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Tarefa não encontrada." });
       if (input.goalId) {
         const ownGoal = await db.select({ id: goals.id }).from(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id))).limit(1);
         if (!ownGoal[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "A meta selecionada não pertence à sua conta." });
@@ -394,6 +401,8 @@ export const appRouter = router({
     }),
     delete: protectedProcedure.input(z.object({ taskId: idSchema })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
+      const ownTask = await db.select({ id: tasks.id }).from(tasks).where(and(eq(tasks.id, input.taskId), eq(tasks.userId, ctx.user.id))).limit(1);
+      if (!ownTask[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Tarefa não encontrada." });
       await db.delete(tasks).where(and(eq(tasks.id, input.taskId), eq(tasks.userId, ctx.user.id)));
       return { success: true } as const;
     }),
@@ -402,12 +411,22 @@ export const appRouter = router({
   goals: router({
     create: protectedProcedure.input(goalInput).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
+      if (input.automationType === "habit") {
+        const ownHabit = input.automationRefId ? await db.select({ id: habits.id }).from(habits).where(and(eq(habits.id, input.automationRefId), eq(habits.userId, ctx.user.id))).limit(1) : [];
+        if (!ownHabit[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha um hábito da sua conta para automatizar esta meta." });
+      }
       const inserted = await db.insert(goals).values({ userId: ctx.user.id, title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null, automationType: input.automationType, automationRefId: input.automationType === "habit" ? input.automationRefId ?? null : null, automationStartDate: input.automationType === "manual" ? null : new Date() });
       if (input.automationType === "tasks") await db.update(goals).set({ automationRefId: Number(inserted[0].insertId) }).where(and(eq(goals.id, Number(inserted[0].insertId)), eq(goals.userId, ctx.user.id)));
       return { success: true } as const;
     }),
     update: protectedProcedure.input(goalInput.extend({ goalId: idSchema, status: z.enum(["active", "completed", "paused"]).optional() })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
+      const ownGoal = await db.select({ id: goals.id }).from(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id))).limit(1);
+      if (!ownGoal[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Meta não encontrada." });
+      if (input.automationType === "habit") {
+        const ownHabit = input.automationRefId ? await db.select({ id: habits.id }).from(habits).where(and(eq(habits.id, input.automationRefId), eq(habits.userId, ctx.user.id))).limit(1) : [];
+        if (!ownHabit[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha um hábito da sua conta para automatizar esta meta." });
+      }
       await db.update(goals).set({ title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null, automationType: input.automationType, automationRefId: input.automationType === "habit" ? input.automationRefId ?? null : null, automationStartDate: input.automationType === "manual" ? null : new Date(), status: input.status ?? "active" }).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)));
       return { success: true } as const;
     }),
@@ -421,6 +440,8 @@ export const appRouter = router({
     }),
     delete: protectedProcedure.input(z.object({ goalId: idSchema })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
+      const ownGoal = await db.select({ id: goals.id }).from(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id))).limit(1);
+      if (!ownGoal[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Meta não encontrada." });
       await db.delete(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)));
       return { success: true } as const;
     }),
@@ -568,6 +589,8 @@ export const appRouter = router({
       const db = await requireDb();
       const ownSession = await db.select({ id: trainingSessions.id }).from(trainingSessions).where(and(eq(trainingSessions.id, input.sessionId), eq(trainingSessions.userId, ctx.user.id), eq(trainingSessions.status, "in_progress"))).limit(1);
       if (!ownSession[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "A sessão não está aberta." });
+      const ownExercise = await db.select({ id: trainingExercises.id }).from(trainingExercises).innerJoin(trainingSessions, eq(trainingSessions.planId, trainingExercises.planId)).where(and(eq(trainingExercises.id, input.exerciseId), eq(trainingExercises.userId, ctx.user.id), eq(trainingSessions.id, input.sessionId), eq(trainingSessions.userId, ctx.user.id))).limit(1);
+      if (!ownExercise[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "O exercício não pertence à ficha desta sessão." });
       const existing = await db.select({ id: trainingSets.id }).from(trainingSets).where(and(eq(trainingSets.sessionId, input.sessionId), eq(trainingSets.exerciseId, input.exerciseId), eq(trainingSets.setNumber, input.setNumber), eq(trainingSets.userId, ctx.user.id))).limit(1);
       const values = { actualReps: input.actualReps, actualWeightKg: input.actualWeightKg, completed: input.completed, completedAt: input.completed ? new Date() : null };
       if (existing[0]) await db.update(trainingSets).set(values).where(and(eq(trainingSets.id, existing[0].id), eq(trainingSets.userId, ctx.user.id)));
@@ -726,22 +749,145 @@ export const appRouter = router({
   backup: router({
     export: protectedProcedure.query(async ({ ctx }) => {
       const db = await requireDb();
-      const [recordRows, habitRows, taskRows, goalRows, focusRows, settingsRows] = await Promise.all([
-        db.select().from(moduleRecords).where(eq(moduleRecords.userId, ctx.user.id)),
-        db.select().from(habits).where(eq(habits.userId, ctx.user.id)),
-        db.select().from(tasks).where(eq(tasks.userId, ctx.user.id)),
-        db.select().from(goals).where(eq(goals.userId, ctx.user.id)),
-        db.select().from(focusSessions).where(eq(focusSessions.userId, ctx.user.id)),
-        db.select().from(userSettings).where(eq(userSettings.userId, ctx.user.id)).limit(1),
+      const userId = ctx.user.id;
+      const [recordRows, habitRows, completionRows, taskRows, goalRows, focusRows, pointRows, auditRows, settingsRows, libraryRows, planRows, exerciseRows, sessionRows, setRows] = await Promise.all([
+        db.select().from(moduleRecords).where(eq(moduleRecords.userId, userId)),
+        db.select().from(habits).where(eq(habits.userId, userId)),
+        db.select().from(habitCompletions).where(eq(habitCompletions.userId, userId)),
+        db.select().from(tasks).where(eq(tasks.userId, userId)),
+        db.select().from(goals).where(eq(goals.userId, userId)),
+        db.select().from(focusSessions).where(eq(focusSessions.userId, userId)),
+        db.select().from(pointTransactions).where(eq(pointTransactions.userId, userId)),
+        db.select().from(auditLogs).where(eq(auditLogs.userId, userId)),
+        db.select().from(userSettings).where(eq(userSettings.userId, userId)).limit(1),
+        db.select().from(exerciseLibrary).where(eq(exerciseLibrary.userId, userId)),
+        db.select().from(trainingPlans).where(eq(trainingPlans.userId, userId)),
+        db.select().from(trainingExercises).where(eq(trainingExercises.userId, userId)),
+        db.select().from(trainingSessions).where(eq(trainingSessions.userId, userId)),
+        db.select().from(trainingSets).where(eq(trainingSets.userId, userId)),
       ]);
-      return { version: 1, exportedAt: new Date().toISOString(), records: recordRows.map(serializeRecord), habits: habitRows, tasks: taskRows, goals: goalRows, focusSessions: focusRows, settings: settingsRows[0] ?? null };
+      return {
+        version: 2,
+        exportedAt: new Date().toISOString(),
+        records: recordRows.map(serializeRecord),
+        habits: habitRows,
+        habitCompletions: completionRows,
+        tasks: taskRows,
+        goals: goalRows,
+        focusSessions: focusRows,
+        pointTransactions: pointRows,
+        auditLogs: auditRows,
+        settings: settingsRows[0] ?? null,
+        exerciseLibrary: libraryRows,
+        trainingPlans: planRows,
+        trainingExercises: exerciseRows,
+        trainingSessions: sessionRows,
+        trainingSets: setRows,
+      };
     }),
-    importRecords: protectedProcedure.input(z.object({ version: z.number().int().positive(), records: z.array(recordInput.omit({ module: true }).extend({ module: moduleSchema })).max(2000) })).mutation(async ({ ctx, input }) => {
+    importRecords: protectedProcedure.input(backupPayloadSchema).mutation(async ({ ctx, input }) => {
+      const payload = backupPayloadSchema.parse(input);
+      if (payload.version >= 2) assertBackupRelationships(payload);
       const db = await requireDb();
-      for (const record of input.records) {
-        await db.insert(moduleRecords).values({ userId: ctx.user.id, module: record.module, title: record.title, subtitle: record.subtitle || null, status: record.status, numericValue: record.numericValue, amountCents: record.amountCents, recordDate: record.recordDate ? new Date(`${record.recordDate}T00:00:00.000Z`) : null, details: JSON.stringify(record.details) });
-      }
-      return { success: true, imported: input.records.length } as const;
+      const userId = ctx.user.id;
+      const text = (row: Record<string, unknown>, key: string, label: string, fallback = "") => optionalString(row, key) ?? fallback;
+      const number = (row: Record<string, unknown>, key: string, fallback = 0) => optionalNumber(row, key) ?? fallback;
+      const date = (row: Record<string, unknown>, key: string, label: string, dateOnly = false) => row[key] == null ? null : asDate(row[key], `${label}.${key}`, dateOnly);
+      const bool = (row: Record<string, unknown>, key: string, fallback = false) => typeof row[key] === "boolean" ? row[key] as boolean : fallback;
+      const enumValue = <T extends string>(row: Record<string, unknown>, key: string, values: readonly T[], fallback: T) => typeof row[key] === "string" && values.includes(row[key] as T) ? row[key] as T : fallback;
+      const details = (value: unknown) => {
+        if (value && typeof value === "object" && !Array.isArray(value)) return JSON.stringify(value);
+        if (typeof value === "string") { try { const parsed = JSON.parse(value); return JSON.stringify(parsed && typeof parsed === "object" ? parsed : {}); } catch { return "{}"; } }
+        return "{}";
+      };
+      const count = { records: 0, habits: 0, habitCompletions: 0, tasks: 0, goals: 0, focusSessions: 0, pointTransactions: 0, auditLogs: 0, settings: 0, exerciseLibrary: 0, trainingPlans: 0, trainingExercises: 0, trainingSessions: 0, trainingSets: 0 };
+      const maps = { habits: new Map<number, number>(), goals: new Map<number, number>(), library: new Map<number, number>(), plans: new Map<number, number>(), exercises: new Map<number, number>(), sessions: new Map<number, number>(), tasks: new Map<number, number>(), records: new Map<number, number>() };
+
+      await db.transaction(async tx => {
+        for (const row of payload.records) {
+          const oldId = rowId(row, "Registro");
+          const result = await tx.insert(moduleRecords).values({ userId, module: text(row, "module", "Registro"), title: requiredString(row, "title", "Registro"), subtitle: optionalString(row, "subtitle"), status: text(row, "status", "Registro", "active"), numericValue: number(row, "numericValue"), amountCents: number(row, "amountCents"), recordDate: date(row, "recordDate", "Registro", true), details: details(row.details) });
+          maps.records.set(oldId, Number(result[0].insertId)); count.records += 1;
+        }
+        for (const row of payload.habits) {
+          const oldId = rowId(row, "Hábito");
+          const result = await tx.insert(habits).values({ userId, name: requiredString(row, "name", "Hábito"), category: text(row, "category", "Hábito", "Disciplina"), frequency: enumValue(row, "frequency", ["daily", "weekly", "custom"] as const, "daily"), active: bool(row, "active", true) });
+          maps.habits.set(oldId, Number(result[0].insertId)); count.habits += 1;
+        }
+        for (const row of payload.goals) {
+          const oldId = rowId(row, "Meta");
+          const automationType = enumValue(row, "automationType", ["manual", "habit", "tasks", "focus", "training", "nutrition"] as const, "manual");
+          const oldRef = optionalNumber(row, "automationRefId");
+          const result = await tx.insert(goals).values({ userId, title: requiredString(row, "title", "Meta"), category: text(row, "category", "Meta", "Pessoal"), progress: number(row, "progress"), target: Math.max(1, number(row, "target", 100)), deadline: date(row, "deadline", "Meta", true), automationType, automationRefId: automationType === "habit" && oldRef !== null ? maps.habits.get(oldRef) ?? null : oldRef, automationStartDate: date(row, "automationStartDate", "Meta", true), status: enumValue(row, "status", ["active", "completed", "paused"] as const, "active") });
+          maps.goals.set(oldId, Number(result[0].insertId)); count.goals += 1;
+        }
+        for (const row of payload.tasks) {
+          const oldId = rowId(row, "Tarefa");
+          const oldGoal = optionalNumber(row, "goalId");
+          const result = await tx.insert(tasks).values({ userId, title: requiredString(row, "title", "Tarefa"), description: optionalString(row, "description"), category: text(row, "category", "Tarefa", "Geral"), priority: enumValue(row, "priority", ["low", "medium", "high"] as const, "medium"), status: enumValue(row, "status", ["todo", "in_progress", "completed"] as const, "todo"), dueDate: date(row, "dueDate", "Tarefa", true), goalId: oldGoal === null ? null : maps.goals.get(oldGoal) ?? null });
+          maps.tasks.set(oldId, Number(result[0].insertId)); count.tasks += 1;
+        }
+        for (const row of payload.habitCompletions) {
+          const habitId = maps.habits.get(requiredNumber(row, "habitId", "Conclusão de hábito"));
+          if (!habitId) throw new Error("Não foi possível remapear uma conclusão de hábito.");
+          await tx.insert(habitCompletions).values({ userId, habitId, day: asDate(row.day, "Conclusão de hábito.day", true), status: enumValue(row, "status", ["completed", "dismissed", "missed"] as const, "completed"), note: optionalString(row, "note") }); count.habitCompletions += 1;
+        }
+        for (const row of payload.focusSessions) {
+          await tx.insert(focusSessions).values({ userId, durationMinutes: Math.max(1, number(row, "durationMinutes", 1)), startedAt: asDate(row.startedAt, "Sessão de foco.startedAt"), endedAt: asDate(row.endedAt, "Sessão de foco.endedAt") }); count.focusSessions += 1;
+        }
+        for (const row of payload.exerciseLibrary) {
+          const oldId = rowId(row, "Exercício da biblioteca");
+          const result = await tx.insert(exerciseLibrary).values({ userId, name: requiredString(row, "name", "Exercício da biblioteca"), muscleGroup: requiredString(row, "muscleGroup", "Exercício da biblioteca"), description: optionalString(row, "description"), equipment: optionalString(row, "equipment"), demonstrationUrl: optionalString(row, "demonstrationUrl") });
+          maps.library.set(oldId, Number(result[0].insertId)); count.exerciseLibrary += 1;
+        }
+        for (const row of payload.trainingPlans) {
+          const oldId = rowId(row, "Ficha");
+          const result = await tx.insert(trainingPlans).values({ userId, name: requiredString(row, "name", "Ficha"), category: text(row, "category", "Ficha", "Musculação"), modality: text(row, "modality", "Ficha", "musculacao"), weekdays: text(row, "weekdays", "Ficha"), active: bool(row, "active", true) });
+          maps.plans.set(oldId, Number(result[0].insertId)); count.trainingPlans += 1;
+        }
+        for (const row of payload.trainingExercises) {
+          const oldPlan = requiredNumber(row, "planId", "Exercício");
+          const planId = maps.plans.get(oldPlan);
+          if (!planId) throw new Error("Não foi possível remapear uma ficha de treino.");
+          const oldId = rowId(row, "Exercício");
+          const oldLibrary = optionalNumber(row, "libraryId");
+          const result = await tx.insert(trainingExercises).values({ userId, planId, libraryId: oldLibrary === null ? null : maps.library.get(oldLibrary) ?? null, name: requiredString(row, "name", "Exercício"), muscleGroup: requiredString(row, "muscleGroup", "Exercício"), equipment: optionalString(row, "equipment"), description: optionalString(row, "description"), sortOrder: number(row, "sortOrder"), plannedSets: Math.max(1, number(row, "plannedSets", 3)), plannedReps: Math.max(1, number(row, "plannedReps", 10)), plannedWeightKg: Math.max(0, number(row, "plannedWeightKg")), restSeconds: Math.max(0, number(row, "restSeconds", 90)) });
+          maps.exercises.set(oldId, Number(result[0].insertId)); count.trainingExercises += 1;
+        }
+        for (const row of payload.trainingSessions) {
+          const planId = maps.plans.get(requiredNumber(row, "planId", "Sessão"));
+          if (!planId) throw new Error("Não foi possível remapear uma ficha da sessão.");
+          const oldId = rowId(row, "Sessão");
+          const result = await tx.insert(trainingSessions).values({ userId, planId, sessionDate: asDate(row.sessionDate, "Sessão.sessionDate", true), startedAt: asDate(row.startedAt, "Sessão.startedAt"), endedAt: date(row, "endedAt", "Sessão"), status: text(row, "status", "Sessão", "in_progress"), notes: optionalString(row, "notes") });
+          maps.sessions.set(oldId, Number(result[0].insertId)); count.trainingSessions += 1;
+        }
+        for (const row of payload.trainingSets) {
+          const sessionId = maps.sessions.get(requiredNumber(row, "sessionId", "Série"));
+          const exerciseId = maps.exercises.get(requiredNumber(row, "exerciseId", "Série"));
+          if (!sessionId || !exerciseId) throw new Error("Não foi possível remapear uma série de treino.");
+          await tx.insert(trainingSets).values({ userId, sessionId, exerciseId, setNumber: Math.max(1, number(row, "setNumber", 1)), plannedReps: Math.max(1, number(row, "plannedReps", 1)), plannedWeightKg: Math.max(0, number(row, "plannedWeightKg")), actualReps: Math.max(0, number(row, "actualReps")), actualWeightKg: Math.max(0, number(row, "actualWeightKg")), completed: bool(row, "completed"), completedAt: date(row, "completedAt", "Série" ) }); count.trainingSets += 1;
+        }
+        for (const row of payload.pointTransactions) {
+          const reason = requiredString(row, "reason", "Pontuação");
+          const oldRef = optionalNumber(row, "referenceId");
+          const referenceId = reason.startsWith("Sessão de treino") && oldRef !== null ? maps.sessions.get(oldRef) ?? null : null;
+          await tx.insert(pointTransactions).values({ userId, points: requiredNumber(row, "points", "Pontuação"), reason, referenceId }); count.pointTransactions += 1;
+        }
+        for (const row of payload.auditLogs) {
+          const entity = requiredString(row, "entity", "Log de auditoria");
+          const oldEntityId = optionalNumber(row, "entityId");
+          const mapping = entity === "treinos" ? maps.sessions : entity === "tasks" ? maps.tasks : entity === "module_records" ? maps.records : entity === "habits" ? maps.habits : entity === "goals" ? maps.goals : null;
+          await tx.insert(auditLogs).values({ userId, action: requiredString(row, "action", "Log de auditoria"), entity, entityId: oldEntityId !== null && mapping ? mapping.get(oldEntityId) ?? null : null, beforeData: optionalString(row, "beforeData"), afterData: optionalString(row, "afterData") }); count.auditLogs += 1;
+        }
+        if (payload.settings) {
+          const current = await tx.select({ id: userSettings.id }).from(userSettings).where(eq(userSettings.userId, userId)).limit(1);
+          if (!current[0]) {
+            const row = payload.settings;
+            await tx.insert(userSettings).values({ userId, goals: optionalString(row, "goals"), notifications: bool(row, "notifications", true), preferredFocusMinutes: Math.min(120, Math.max(1, number(row, "preferredFocusMinutes", 25))), preferredBreakMinutes: Math.min(60, Math.max(1, number(row, "preferredBreakMinutes", 5))) }); count.settings = 1;
+          }
+        }
+      });
+      return { success: true, imported: count.records, counts: count, message: "Backup validado e mesclado sem sobrescrever dados existentes." } as const;
     }),
   }),
 

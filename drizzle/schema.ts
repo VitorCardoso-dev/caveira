@@ -4,6 +4,8 @@ import {
   int,
   mysqlEnum,
   mysqlTable,
+  index,
+  uniqueIndex,
   text,
   timestamp,
   varchar,
@@ -41,7 +43,9 @@ export const habitCompletions = mysqlTable("habit_completions", {
   note: text("note"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({
+  uniqueHabitDay: uniqueIndex("habit_completions_user_habit_day_uq").on(table.userId, table.habitId, table.day),
+}));
 
 export const tasks = mysqlTable("tasks", {
   id: int("id").autoincrement().primaryKey(),
@@ -52,10 +56,13 @@ export const tasks = mysqlTable("tasks", {
   priority: mysqlEnum("priority", ["low", "medium", "high"]).default("medium").notNull(),
   status: mysqlEnum("status", ["todo", "in_progress", "completed"]).default("todo").notNull(),
   dueDate: date("dueDate"),
-  goalId: int("goalId"),
+  goalId: int("goalId").references(() => goals.id),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({
+  userDueDateIdx: index("tasks_user_dueDate_idx").on(table.userId, table.dueDate),
+  goalIdx: index("tasks_goalId_idx").on(table.goalId),
+}));
 
 export const goals = mysqlTable("goals", {
   id: int("id").autoincrement().primaryKey(),
@@ -156,7 +163,7 @@ export const trainingExercises = mysqlTable("training_exercises", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().references(() => users.id),
   planId: int("planId").notNull().references(() => trainingPlans.id),
-  libraryId: int("libraryId"),
+  libraryId: int("libraryId").references(() => exerciseLibrary.id),
   name: varchar("name", { length: 160 }).notNull(),
   muscleGroup: varchar("muscleGroup", { length: 80 }).notNull(),
   equipment: varchar("equipment", { length: 120 }),
@@ -196,7 +203,9 @@ export const trainingSets = mysqlTable("training_sets", {
   completedAt: timestamp("completedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({
+  uniqueSessionExerciseSet: uniqueIndex("training_sets_session_exercise_set_uq").on(table.sessionId, table.exerciseId, table.setNumber),
+}));
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
