@@ -15,6 +15,16 @@ const Toaster = ({ ...props }: ToasterProps) => {
           "--normal-border": "var(--border)",
         } as React.CSSProperties
       }
+      toastOptions={{
+        classNames: {
+          toast: "caveira-toast",
+          success: "caveira-toast-success",
+          error: "caveira-toast-error",
+          title: "caveira-toast-title",
+          description: "caveira-toast-description",
+          closeButton: "caveira-toast-close",
+        },
+      }}
       {...props}
     />
   );

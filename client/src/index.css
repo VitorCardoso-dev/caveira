@@ -121,6 +121,14 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .category-chip-blue { color: #79c9f5; }
   .category-chip-pink { color: #f29bc7; }
   .category-chip-gray { color: #aaa8b0; }
+  .caveira-toast { border-radius: 16px !important; border: 1px solid #29292f !important; background: #151519 !important; color: #f2f0ec !important; box-shadow: 0 18px 45px rgba(0,0,0,.36) !important; }
+  .caveira-toast-success { border-color: rgba(183,243,107,.48) !important; background: linear-gradient(135deg, rgba(183,243,107,.14), #151519 62%) !important; }
+  .caveira-toast-error { border-color: rgba(229,57,53,.58) !important; background: linear-gradient(135deg, rgba(229,57,53,.16), #151519 62%) !important; }
+  .caveira-toast-title { font-size: 13px !important; font-weight: 850 !important; letter-spacing: -.01em; }
+  .caveira-toast-description { color: #aaa8b0 !important; font-size: 11px !important; }
+  .caveira-toast-success [data-icon] { color: #b7f36b !important; }
+  .caveira-toast-error [data-icon] { color: #ef7773 !important; }
+  .caveira-toast-close { background: transparent !important; border-color: #35353d !important; color: #aaa8b0 !important; }
 }
 
 @media (max-width: 640px) { .hero-card { min-height: 320px; padding: 23px; }

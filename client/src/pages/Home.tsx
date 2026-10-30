@@ -86,13 +86,13 @@ function QuickDialog({ kind, onClose, onSaved }: { kind: "habit" | "task" | "goa
     try {
       if (kind === "habit") {
         await createHabit.mutateAsync({ name, category: category || undefined, frequency: "daily" });
-        toast.success("Hábito registrado.");
+        toast.success("Hábito registrado", { description: "Sua rotina foi atualizada com sucesso." });
       } else if (kind === "task") {
         await createTask.mutateAsync({ title: name, category: category || undefined, dueDate: deadline || null, goalId: taskGoalId ? Number(taskGoalId) : null });
-        toast.success("Tarefa registrada.");
+        toast.success("Tarefa registrada", { description: "Ela já está pronta para ser cumprida." });
       } else {
         await createGoal.mutateAsync({ title: name, category: category || undefined, target: Number(target) || 100, deadline: deadline || null, automationType, automationRefId: null });
-        toast.success("Meta registrada.");
+        toast.success("Meta registrada", { description: "O acompanhamento automático já está ativo." });
       }
       onSaved();
       onClose();
@@ -155,8 +155,8 @@ export default function Home() {
   const snapshotQuery = trpc.dashboard.snapshot.useQuery({ today }, { enabled: isAuthenticated, refetchOnWindowFocus: false });
   const reportQuery = trpc.reports.summary.useQuery(undefined, { enabled: isAuthenticated, refetchOnWindowFocus: false });
   const pointsQuery = trpc.points.weekly.useQuery({ today }, { enabled: isAuthenticated, refetchOnWindowFocus: false });
-  const toggleHabit = trpc.habits.toggleToday.useMutation({ onSuccess: () => snapshotQuery.refetch() });
-  const toggleTask = trpc.tasks.toggleComplete.useMutation({ onSuccess: () => snapshotQuery.refetch(), onError: error => toast.error(error.message) });
+  const toggleHabit = trpc.habits.toggleToday.useMutation({ onSuccess: () => { snapshotQuery.refetch(); toast.success("Hábito concluído", { description: "Sua consistência foi atualizada." }); } });
+  const toggleTask = trpc.tasks.toggleComplete.useMutation({ onSuccess: () => { snapshotQuery.refetch(); toast.success("Tarefa cumprida", { description: "Mais uma ação concluída no seu dia." }); }, onError: error => toast.error("Não foi possível concluir a tarefa", { description: error.message }) });
   const [dialog, setDialog] = useState<"habit" | "task" | "goal" | null>(null);
 
   if (loading || snapshotQuery.isLoading || reportQuery.isLoading || pointsQuery.isLoading) {
