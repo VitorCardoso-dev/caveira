@@ -18,10 +18,11 @@
 }
 
 :root { font-family: "Inter", "Helvetica Neue", Arial, sans-serif; color: #f2f0ec; background: #0b0b0d; font-synthesis: none; text-rendering: optimizeLegibility; }
-* { box-sizing: border-box; }
+* { box-sizing: border-box; min-width: 0; }
 html { background: #0b0b0d; overflow-x: hidden; }
 body, #root { margin: 0; min-width: 320px; max-width: 100%; overflow-x: hidden; background: #0b0b0d; }
-button, input, select { font: inherit; }
+button, input, select { max-width: 100%; font: inherit; }
+a, button, p, h1, h2, h3, label, span { overflow-wrap: anywhere; }
 button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #e53935; outline-offset: 3px; }
 
 @layer components {
@@ -52,9 +53,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .metric-label { color: #96959d; font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
   .metric-value { margin-top: 5px; font-family: "JetBrains Mono", monospace; font-size: 21px; font-weight: 700; letter-spacing: -.06em; }
   .metric-detail { margin-top: 3px; color: #696870; font-size: 11px; }
-  .panel-card { min-width: 0; border: 1px solid #29292f; border-radius: 22px; padding: 21px; background: #121216; }
+  .panel-card { min-width: 0; max-width: 100%; overflow: hidden; border: 1px solid #29292f; border-radius: 22px; padding: 21px; background: #121216; }
   .section-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 19px; }
-  .section-title { margin-top: 7px; font-family: "Inter", sans-serif; font-size: 20px; font-weight: 800; letter-spacing: -.045em; }
+  .section-title { margin-top: 7px; font-family: "Inter", sans-serif; font-size: clamp(17px, 4vw, 20px); line-height: 1.15; font-weight: 800; letter-spacing: -.045em; }
   .record-row { display: flex; min-width: 0; align-items: center; gap: 12px; min-height: 58px; border: 1px solid transparent; border-radius: 14px; padding: 8px 10px; transition: background .18s, border-color .18s; }
   .record-row:hover { border-color: #29292f; background: #17171c; }
   .record-complete { background: rgba(183,243,107,.035); }
@@ -103,3 +104,13 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 }
 
 @media (min-width: 641px) and (max-width: 1000px) { .goal-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.training-session-card { border-radius: 18px; padding: 15px; }
+.training-set-row { min-width: 0; }
+@media (max-width: 640px) {
+  .training-page-title { font-size: 30px; }
+  .training-session-card { padding: 13px; border-radius: 16px; }
+  .training-set-row { grid-template-columns: 30px minmax(0, 1fr) minmax(0, 1fr) 42px; gap: 6px; padding: 7px 5px; }
+  .training-set-row .field-label { font-size: 9px; letter-spacing: .08em; }
+  .training-set-row .field-input { padding: 9px 5px; font-size: 13px; }
+}
