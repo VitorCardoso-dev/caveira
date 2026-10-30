@@ -56,3 +56,16 @@
 - [ ] Relatórios diário/semanal/mensal agregam hábitos, tarefas, foco, treinos, físico, alimentação, finanças e recompensas; com comparação de períodos, tendências, áreas de atenção e fechamento semanal com o que funcionou, falhou e três prioridades; correlação não é apresentada como causalidade.
 - [ ] Configurações incluem perfil, objetivos, categorias, metas, notificações, horários, recompensas, exportação CSV/JSON, importação de backups válidos, backup/restauração, apagar dados pessoais com confirmação e histórico de alterações.
 - [ ] O aplicativo funciona bem em telas pequenas, oferece acesso offline ao essencial quando possível, é instalável como PWA e passa pelos checks, testes e build de produção sem declarar integrações não implementadas como concluídas.
+
+
+## Entrega 2026-10-30 — experiência de execução e evolução
+
+- [x] **Categorias predefinidas para tarefas, hábitos e metas:** o cadastro usa um seletor com Alimentação, Trabalho, Estudos, Financeiro, Físico, Saúde, Desenvolvimento pessoal, Hábitos, Mente, Relacionamentos e Outros; a tarefa não exibe mais prioridade manual.
+- [x] **Pontuação por categoria e sem exagero:** tarefas recebem 8/7/6/6/5/5/5/4/4/4/3 pontos conforme a categoria; prazos vencidos perdem metade dos pontos, com mínimo de 2; ações da mesma categoria no mesmo dia são deduplicadas para evitar contar hábito e tarefa como dois ganhos independentes.
+- [x] **Guias internas nos três módulos:** Hábitos, Tarefas e Metas têm Visão geral e Criação, com a criação separada da leitura dos registros persistentes.
+- [x] **Visão geral de Metas:** metas são exibidas em cards visuais com imagem da marca, variação cromática por categoria, evolução, estado, atraso e indicação de acompanhamento automático.
+- [x] **Visão geral de Tarefas:** mostra tarefas criadas/com prazo no dia, cumprimento diário, categoria de maior constância, categoria que exige atenção e taxas históricas por categoria.
+- [x] **Metas novas com acompanhamento automático:** a criação não oferece progresso manual; a origem é tarefa, hábito, foco, treino ou alimentação, e tarefas podem ser vinculadas a metas.
+- [x] **Gráfico de linha do painel:** o dashboard passou a consumir a série diária real de 14 dias, com pontos de hábitos/tarefas deduplicados, em vez de apenas cards/barras decorativas.
+- [x] **Validação:** `pnpm check`, `pnpm test` (9 testes) e `pnpm build` passaram; Preview respondeu 200 em `/api/health` e `/manus-routes.json`; fluxo autenticado de tarefas e metas foi revisado no navegador; guias de criação foram abertas e a ausência de prioridade foi confirmada.
+- [ ] **Pendência de produto:** registros antigos com categorias digitadas livremente continuam preservados e aparecem como categorias legadas; se desejado, a próxima etapa pode oferecer migração assistida para as categorias oficiais, sem apagar histórico.

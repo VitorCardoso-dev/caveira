@@ -57,9 +57,24 @@ function calculateStreak(days: Set<string>, today: string) {
   return streak;
 }
 
-const POINTS = { habitDone: 2, habitMissed: -1, taskLow: 3, taskMedium: 5, taskHigh: 8, taskOverdueLow: -2, taskOverdueMedium: -3, taskOverdueHigh: -5, goalDone: 8, focusBlock: 1 } as const;
+const POINTS = { habitDone: 2, habitMissed: -1, goalDone: 8, focusBlock: 1 } as const;
+const CATEGORY_POINTS: Record<string, number> = {
+  "Alimentação": 8,
+  "Trabalho": 7,
+  "Estudos": 6,
+  "Financeiro": 6,
+  "Físico": 5,
+  "Saúde": 5,
+  "Desenvolvimento pessoal": 5,
+  "Hábitos": 4,
+  "Mente": 4,
+  "Relacionamentos": 4,
+  "Outros": 3,
+  "Geral": 3,
+};
+function pointsForCategory(category: string | null | undefined) { return CATEGORY_POINTS[category ?? "Geral"] ?? 3; }
 function weekStartKey(today: string) { const date = new Date(`${today}T12:00:00Z`); date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7)); return date.toISOString().slice(0, 10); }
-function pointsForPriority(priority: "low" | "medium" | "high", overdue = false) { if (overdue) return priority === "high" ? POINTS.taskOverdueHigh : priority === "medium" ? POINTS.taskOverdueMedium : POINTS.taskOverdueLow; return priority === "high" ? POINTS.taskHigh : priority === "medium" ? POINTS.taskMedium : POINTS.taskLow; }
+function overdueLoss(category: string | null | undefined) { return -Math.max(2, Math.round(pointsForCategory(category) / 2)); }
 
 export function calculateGoalProgress(goal: { automationType: string; automationRefId: number | null; progress: number; target: number; automationStartDate: Date | string | null; createdAt: Date | string }, source: { habitCompletions: Array<{ habitId: number; day: Date | string; status: string }>; tasks: Array<{ status: string; updatedAt: Date | string; goalId?: number | null }>; focus: Array<{ durationMinutes: number; createdAt: Date | string }>; trainingDates: Array<Date | string>; nutritionDates: Array<Date | string> }, today: string) {
   const start = dateKey(goal.automationStartDate ?? goal.createdAt);
@@ -125,7 +140,7 @@ const habitInput = z.object({
 const taskInput = z.object({
   title: z.string().trim().min(2).max(200),
   category: z.string().trim().max(80).optional(),
-  priority: z.enum(["low", "medium", "high"]).default("medium"),
+  priority: z.enum(["low", "medium", "high"]).optional(),
   dueDate: daySchema.nullable().optional(),
   goalId: idSchema.nullable().optional(),
 });
@@ -175,18 +190,29 @@ export const appRouter = router({
       }
       const completedTasks = taskRows.filter(task => task.status === "completed" && dateKey(task.updatedAt) >= start && dateKey(task.updatedAt) <= input.today);
       const overdueTasks = taskRows.filter(task => task.status !== "completed" && task.dueDate && dateKey(task.dueDate) >= start && dateKey(task.dueDate) < input.today);
-      const taskEarned = completedTasks.reduce((sum, task) => sum + pointsForPriority(task.priority), 0);
-      const taskLost = overdueTasks.reduce((sum, task) => sum + pointsForPriority(task.priority, true), 0);
+      const completedTaskPoints = completedTasks.reduce((sum, task) => sum + pointsForCategory(task.category), 0);
+      const habitEvents = completionRows.filter(row => row.status === "completed" && dateKey(row.day) >= start && dateKey(row.day) <= input.today).map(row => ({ day: dateKey(row.day), category: habitRows.find(habit => habit.id === row.habitId)?.category ?? "Hábitos", points: POINTS.habitDone }));
+      const taskEvents = completedTasks.map(task => ({ day: dateKey(task.updatedAt), category: task.category, points: pointsForCategory(task.category) }));
+      const dedupeKeys = new Set<string>();
+      let dedupedEarned = 0;
+      for (const event of [...habitEvents, ...taskEvents]) {
+        const key = `${event.day}:${event.category}`;
+        if (dedupeKeys.has(key)) continue;
+        dedupeKeys.add(key);
+        const sameDayActions = [...habitEvents, ...taskEvents].filter(item => item.day === event.day && item.category === event.category);
+        dedupedEarned += Math.max(...sameDayActions.map(item => item.points));
+      }
+      const taskLost = overdueTasks.reduce((sum, task) => sum + overdueLoss(task.category), 0);
       const goalEarned = goalRows.filter(goal => goal.status === "completed" && dateKey(goal.updatedAt) >= start && dateKey(goal.updatedAt) <= input.today).length * POINTS.goalDone;
       const focusEarned = Math.min(5, Math.floor(focusRows.filter(session => dateKey(session.createdAt) >= start && dateKey(session.createdAt) <= input.today).reduce((sum, session) => sum + session.durationMinutes, 0) / 25)) * POINTS.focusBlock;
-      const earned = Math.max(0, habitDone + taskEarned + goalEarned + focusEarned);
+      const earned = Math.max(0, dedupedEarned + goalEarned + focusEarned);
       const lost = Math.abs(habitMissed + taskLost);
       const spent = spendingRows.reduce((sum, row) => sum + Math.max(0, row.points), 0);
       const net = earned - lost;
       const walletBalance = Math.max(0, net - spent);
       const obligations = habitRows.filter(row => row.active && row.frequency === "daily").length * Math.max(0, Math.floor((new Date(`${input.today}T12:00:00Z`).getTime() - new Date(`${start}T12:00:00Z`).getTime()) / 86400000) + 1) + taskRows.filter(task => (task.dueDate && dateKey(task.dueDate) >= start && dateKey(task.dueDate) <= input.today) || task.status === "completed").length;
       const completedObligations = completedHabitDays.size + completedTasks.length;
-      return { start, today: input.today, earned, lost, net, spent, walletBalance, completionRate: obligations ? Math.round((completedObligations / obligations) * 100) : 0, breakdown: { habits: habitDone + habitMissed, tasks: taskEarned + taskLost, goals: goalEarned, focus: focusEarned, overdueTasks: overdueTasks.length }, rules: { habitDone: POINTS.habitDone, taskLow: POINTS.taskLow, taskMedium: POINTS.taskMedium, taskHigh: POINTS.taskHigh, overdueLow: POINTS.taskOverdueLow, overdueMedium: POINTS.taskOverdueMedium, overdueHigh: POINTS.taskOverdueHigh, goalDone: POINTS.goalDone, focusBlock: POINTS.focusBlock } };
+      return { start, today: input.today, earned, lost, net, spent, walletBalance, completionRate: obligations ? Math.round((completedObligations / obligations) * 100) : 0, breakdown: { habits: habitDone + habitMissed, tasks: completedTaskPoints + taskLost, goals: goalEarned, focus: focusEarned, overdueTasks: overdueTasks.length }, rules: { habitDone: POINTS.habitDone, categoryPoints: CATEGORY_POINTS, overdueFormula: "metade dos pontos da categoria, mínimo de 2", goalDone: POINTS.goalDone, focusBlock: POINTS.focusBlock, deduplication: "no mesmo dia e categoria, vale somente a maior ação" } };
     }),
   }),
 
@@ -220,12 +246,21 @@ export const appRouter = router({
           streak: calculateStreak(completionsByHabit.get(habit.id) ?? new Set(), input.today),
         }));
 
-        const priority = { high: 0, medium: 1, low: 2 } as const;
         const overdueTasks = taskRows.filter(task => task.status !== "completed" && task.dueDate && dateKey(task.dueDate) < input.today);
         const openTasks = taskRows
           .filter(task => task.status !== "completed" && (!task.dueDate || dateKey(task.dueDate) >= input.today))
-          .sort((a, b) => priority[a.priority] - priority[b.priority] || sortableDate(a.dueDate).localeCompare(sortableDate(b.dueDate)))
-          .slice(0, 6);
+          .sort((a, b) => pointsForCategory(b.category) - pointsForCategory(a.category) || sortableDate(a.dueDate).localeCompare(sortableDate(b.dueDate)))
+          .slice(0, 6)
+          .map(task => ({ ...task, points: pointsForCategory(task.category) }));
+        const todayTasks = taskRows.filter(task => dateKey(task.createdAt) === input.today || Boolean(task.dueDate && dateKey(task.dueDate) === input.today)).sort((a, b) => Number(a.status === "completed") - Number(b.status === "completed"));
+        const categoryStats = Object.entries(taskRows.reduce<Record<string, { total: number; completed: number; points: number }>>((result, task) => {
+          const current = result[task.category] ?? { total: 0, completed: 0, points: pointsForCategory(task.category) };
+          current.total += 1;
+          if (task.status === "completed") current.completed += 1;
+          result[task.category] = current;
+          return result;
+        }, {})).map(([category, values]) => ({ category, ...values, rate: values.total ? Math.round((values.completed / values.total) * 100) : 0 })).sort((a, b) => a.rate - b.rate);
+        const taskInsights = { todayTotal: todayTasks.length, todayCompleted: todayTasks.filter(task => task.status === "completed").length, strongestCategory: [...categoryStats].sort((a, b) => b.rate - a.rate)[0]?.category ?? null, difficultCategory: categoryStats[0]?.category ?? null, categoryStats };
         const completedTasks = taskRows.filter(task => task.status === "completed").length;
         const totalSignals = habitRows.length + taskRows.length;
         const completedSignals = todayCompleted.size + completedTasks - overdueTasks.length;
@@ -248,6 +283,8 @@ export const appRouter = router({
           score,
           habits: habitSummary,
           tasks: openTasks,
+          todayTasks,
+          taskInsights,
           goals: hydratedGoals,
           counts: {
             habits: habitRows.length,
@@ -308,7 +345,7 @@ export const appRouter = router({
         const ownGoal = await db.select({ id: goals.id }).from(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id))).limit(1);
         if (!ownGoal[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "A meta selecionada não pertence à sua conta." });
       }
-      await db.insert(tasks).values({ userId: ctx.user.id, title: input.title, category: input.category || "Geral", priority: input.priority, dueDate: input.dueDate ? new Date(`${input.dueDate}T00:00:00.000Z`) : null, goalId: input.goalId ?? null });
+      await db.insert(tasks).values({ userId: ctx.user.id, title: input.title, category: input.category || "Geral", priority: "medium", dueDate: input.dueDate ? new Date(`${input.dueDate}T00:00:00.000Z`) : null, goalId: input.goalId ?? null });
       return { success: true } as const;
     }),
     update: protectedProcedure.input(taskInput.extend({ taskId: idSchema, status: z.enum(["todo", "in_progress", "completed"]).optional() })).mutation(async ({ ctx, input }) => {
@@ -317,7 +354,7 @@ export const appRouter = router({
         const ownGoal = await db.select({ id: goals.id }).from(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id))).limit(1);
         if (!ownGoal[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "A meta selecionada não pertence à sua conta." });
       }
-      await db.update(tasks).set({ title: input.title, category: input.category || "Geral", priority: input.priority, dueDate: input.dueDate ? new Date(`${input.dueDate}T00:00:00.000Z`) : null, goalId: input.goalId ?? null, status: input.status ?? "todo" }).where(and(eq(tasks.id, input.taskId), eq(tasks.userId, ctx.user.id)));
+      await db.update(tasks).set({ title: input.title, category: input.category || "Geral", priority: "medium", dueDate: input.dueDate ? new Date(`${input.dueDate}T00:00:00.000Z`) : null, goalId: input.goalId ?? null, status: input.status ?? "todo" }).where(and(eq(tasks.id, input.taskId), eq(tasks.userId, ctx.user.id)));
       return { success: true } as const;
     }),
     toggleComplete: protectedProcedure.input(z.object({ taskId: idSchema, completed: z.boolean(), today: daySchema.optional() })).mutation(async ({ ctx, input }) => {
@@ -433,12 +470,32 @@ export const appRouter = router({
       const expenses = finance.filter(record => decodeDetails(record.details).type !== "income").reduce((sum, record) => sum + Math.abs(record.amountCents), 0);
       const nutrition = records.filter(record => record.module === "alimentacao" && dateKey(record.recordDate ?? record.createdAt) === dateKey(new Date())).reduce((sum, record) => sum + record.numericValue, 0);
       const xp = completionRows.length * 10 + taskRows.filter(task => task.status === "completed").length * 25 + goalRows.filter(goal => goal.status === "completed").length * 100 + focusRows.reduce((sum, session) => sum + session.durationMinutes, 0);
+      const chartEnd = new Date();
+      const dailyStats = Array.from({ length: 14 }, (_, index) => {
+        const dayDate = new Date(chartEnd);
+        dayDate.setHours(12, 0, 0, 0);
+        dayDate.setDate(dayDate.getDate() - (13 - index));
+        const day = dayDate.toISOString().slice(0, 10);
+        const dayHabits = completionRows.filter(item => dateKey(item.day) === day);
+        const dayTasks = taskRows.filter(item => item.status === "completed" && dateKey(item.updatedAt) === day);
+        const categories = new Set<string>();
+        let points = 0;
+        for (const habit of dayHabits.filter(item => item.status === "completed")) {
+          const category = habitRows.find(row => row.id === habit.habitId)?.category ?? "Hábitos";
+          if (!categories.has(category)) { categories.add(category); points += POINTS.habitDone; }
+        }
+        for (const task of dayTasks) {
+          if (!categories.has(task.category)) { categories.add(task.category); points += pointsForCategory(task.category); }
+        }
+        return { day, points, completedHabits: dayHabits.filter(item => item.status === "completed").length, completedTasks: dayTasks.length, focusMinutes: focusRows.filter(item => dateKey(item.createdAt) === day).reduce((sum, item) => sum + item.durationMinutes, 0) };
+      });
       return {
         period: month,
         counts: { habits: habitRows.length, tasks: taskRows.length, completedTasks: taskRows.filter(task => task.status === "completed").length, goals: goalRows.length, focusSessions: focusRows.length, training: records.filter(record => record.module === "treinos").length },
         focusMinutes: focusRows.reduce((sum, session) => sum + session.durationMinutes, 0),
         finance: { income, expenses, balance: income - expenses },
         nutrition: { caloriesToday: nutrition },
+        dailyStats,
         gamification: { xp, level: Math.floor(xp / 500) + 1, nextLevelXp: (Math.floor(xp / 500) + 1) * 500, achievements: [completionRows.length >= 7 ? "primeira semana" : null, taskRows.filter(task => task.status === "completed").length >= 10 ? "executor" : null, focusRows.length >= 5 ? "mente presente" : null].filter(Boolean) },
         records: records.slice(0, 80).map(serializeRecord),
       };
