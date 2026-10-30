@@ -43,6 +43,13 @@
       "when": 1793368444103,
       "tag": "0005_wise_lord_hawal",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "5",
+      "when": 1793372886159,
+      "tag": "0006_stormy_revanche",
+      "breakpoints": true
     }
   ]
 }
