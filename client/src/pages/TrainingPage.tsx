@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { ArrowLeft, Check, Clock3, Dumbbell, Flame, Library, Play, Plus, Save, Timer, Trash2, Trophy } from "lucide-react";
+import { ArrowLeft, BarChart3, Check, Clock3, Dumbbell, Flame, Library, Play, Plus, Save, Timer, Trash2, Trophy } from "lucide-react";
 import { Link } from "wouter";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
@@ -53,5 +53,5 @@ export default function TrainingPage() {
   const refresh = () => { query.refetch(); };
   const startFromOverview = (planId: number) => { setTab("track"); const today = todayKey(); window.setTimeout(() => { const button = document.querySelector("[data-start-training]") as HTMLButtonElement | null; if (button) button.click(); }, 0); void planId; void today; };
   if (query.isLoading || !query.data) return <Shell><div className="panel-card animate-pulse">Carregando módulo de treinos...</div></Shell>;
-  return <Shell><div className="mb-6 grid grid-cols-3 gap-1 rounded-2xl border border-caveira-border bg-caveira-panel-soft p-1">{[["overview", "Visão geral"], ["create", "Criação"], ["track", "Acompanhamento"]].map(([key, label]) => <button key={key} onClick={() => setTab(key as any)} className={`rounded-xl px-2 py-3 text-[10px] font-bold uppercase tracking-[.08em] sm:text-xs ${tab === key ? "bg-caveira-red text-white" : "text-caveira-muted hover:text-caveira-text"}`}>{label}</button>)}</div>{tab === "overview" && <Overview data={query.data} onTrack={() => setTab("track")} />}{tab === "create" && <Create data={query.data} refresh={refresh} />}{tab === "track" && <Track data={query.data} sessionId={sessionId} setSessionId={setSessionId} refresh={refresh} />}</Shell>;
+  return <Shell><div className="module-tabs" role="tablist" aria-label="Navegação de Treinos">{[["overview", "visão geral", BarChart3], ["create", "criação", Plus], ["track", "acompanhar", Timer]].map(([key, label, Icon]) => <button key={key as string} role="tab" aria-selected={tab === key} onClick={() => setTab(key as "overview" | "create" | "track")} className={`module-tab ${tab === key ? "active" : ""}`}><Icon size={15} /> {label as string}</button>)}</div>{tab === "overview" && <Overview data={query.data} onTrack={() => setTab("track")} />}{tab === "create" && <Create data={query.data} refresh={refresh} />}{tab === "track" && <Track data={query.data} sessionId={sessionId} setSessionId={setSessionId} refresh={refresh} />}</Shell>;
 }

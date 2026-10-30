@@ -77,8 +77,8 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .field-input::placeholder { color: #5f5e66; }
   .field-input:focus { border-color: #e53935; outline: none; }
   select.field-input { appearance: auto; }
-  .module-tabs { display: flex; gap: 6px; margin-bottom: 24px; padding: 5px; border: 1px solid #29292f; border-radius: 15px; background: #121216; }
-  .module-tab { display: inline-flex; flex: 1; align-items: center; justify-content: center; gap: 8px; border-radius: 11px; padding: 11px 14px; color: #96959d; font-size: 11px; font-weight: 850; letter-spacing: .12em; text-transform: uppercase; transition: color .18s, background .18s, transform .18s; }
+  .module-tabs { display: flex; width: 100%; gap: 4px; margin-bottom: 24px; padding: 5px; border: 1px solid #29292f; border-radius: 15px; background: #121216; }
+  .module-tab { display: inline-flex; min-width: 0; flex: 1; align-items: center; justify-content: center; gap: 8px; border-radius: 11px; padding: 11px 14px; color: #96959d; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; transition: color .18s, background .18s, transform .18s; }
   .module-tab:hover { color: #f2f0ec; background: #1b1b20; }
   .module-tab.active { color: #0b0b0d; background: #f2f0ec; box-shadow: 0 5px 18px rgba(0,0,0,.24); }
   .goal-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
@@ -98,12 +98,19 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .hero-card { min-height: 320px; padding: 23px; }
   .metric-card { min-height: 122px; padding: 13px; }
   .panel-card { padding: 17px; }
-  .module-tabs { position: sticky; top: 10px; z-index: 10; }
-  .module-tab { padding: 10px 8px; font-size: 9px; letter-spacing: .08em; }
+  .module-tabs { position: sticky; top: 10px; z-index: 10; margin-bottom: 18px; }
+  .module-tab { gap: 5px; padding: 10px 7px; font-size: 9px; letter-spacing: .03em; }
   .goal-card-grid { grid-template-columns: 1fr; }
 }
 
 @media (min-width: 641px) and (max-width: 1000px) { .goal-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+@media (min-width: 1024px) {
+  .panel-card { padding: 24px; }
+  .section-title { font-size: 22px; }
+  .field-input { font-size: 15px; }
+  .metric-value { font-size: 24px; }
+}
 
 .training-session-card { border-radius: 18px; padding: 15px; }
 .training-set-row { min-width: 0; }
