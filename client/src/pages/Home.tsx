@@ -74,6 +74,7 @@ function QuickDialog({ kind, onClose, onSaved }: { kind: "habit" | "task" | "goa
   const [automationType, setAutomationType] = useState<"tasks">("tasks");
   const [taskGoalId, setTaskGoalId] = useState("");
   const [deadline, setDeadline] = useState("");
+  const [isCorrosive, setIsCorrosive] = useState(false);
   const createHabit = trpc.habits.create.useMutation();
   const createTask = trpc.tasks.create.useMutation();
   const createGoal = trpc.goals.create.useMutation();
@@ -85,10 +86,10 @@ function QuickDialog({ kind, onClose, onSaved }: { kind: "habit" | "task" | "goa
     if (!name.trim()) return;
     try {
       if (kind === "habit") {
-        await createHabit.mutateAsync({ name, category: category || undefined, frequency: "daily" });
+        await createHabit.mutateAsync({ name, category: category || undefined, isCorrosive, frequency: "daily" });
         toast.success("Hábito registrado", { description: "Sua rotina foi atualizada com sucesso." });
       } else if (kind === "task") {
-        await createTask.mutateAsync({ title: name, category: category || undefined, dueDate: deadline || null, goalId: taskGoalId ? Number(taskGoalId) : null });
+        await createTask.mutateAsync({ title: name, category: category || undefined, isCorrosive, dueDate: deadline || null, goalId: taskGoalId ? Number(taskGoalId) : null });
         toast.success("Tarefa registrada", { description: "Ela já está pronta para ser cumprida." });
       } else {
         await createGoal.mutateAsync({ title: name, category: category || undefined, target: Number(target) || 100, deadline: deadline || null, automationType, automationRefId: null });
@@ -113,6 +114,7 @@ function QuickDialog({ kind, onClose, onSaved }: { kind: "habit" | "task" | "goa
         <form onSubmit={submit} className="space-y-4">
           <label className="field-label">{label}<input autoFocus value={name} onChange={event => setName(event.target.value)} className="field-input" placeholder={kind === "habit" ? "Ex.: leitura de 20 minutos" : kind === "task" ? "Ex.: revisar o planejamento da semana" : "Ex.: concluir o ciclo de treino"} /></label>
           <div className="field-label">Categoria <CategoryPicker value={category} onChange={setCategory} /></div>
+          {(kind === "habit" || kind === "task") && <label className="flex items-center gap-3 rounded-xl border border-caveira-red/20 bg-caveira-red/5 p-3 text-sm"><input type="checkbox" checked={isCorrosive} onChange={event => setIsCorrosive(event.target.checked)} className="accent-red-500" /><span><strong className="text-caveira-red">Atividade corrosiva</strong><span className="mt-1 block text-xs text-caveira-muted">Se não cumprir, perde o dobro da pontuação.</span></span></label>}
           {kind === "goal" && <label className="field-label">Alvo mensurável <input type="number" min="1" value={target} onChange={event => setTarget(event.target.value)} className="field-input" /></label>}
           {kind === "goal" && <label className="field-label">Atualização <select value={automationType} className="field-input" aria-label="Acompanhamento automático"><option value="tasks">Tarefas concluídas</option></select><span className="mt-2 block text-[10px] normal-case tracking-normal text-caveira-muted">Toda meta nova acompanha registros reais; tarefas vinculadas atualizam este progresso.</span></label>}
           {kind === "task" && <label className="field-label">Meta vinculada <select value={taskGoalId} onChange={event => setTaskGoalId(event.target.value)} className="field-input"><option value="">Nenhuma</option>{snapshot.data?.goals.filter(goal => goal.automationType === "tasks").map(goal => <option key={goal.id} value={goal.id}>{goal.title}</option>)}</select></label>}

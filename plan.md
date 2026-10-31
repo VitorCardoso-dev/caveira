@@ -53,3 +53,37 @@ O módulo acrescentará as tabelas `exercise_library`, `training_plans`, `traini
 Cada sessão concluída é um registro separado e imutável para o histórico; editar uma ficha não altera sessões anteriores. A série salva será idempotente por sessão/exercício/número da série e o servidor aceitará salvamento incremental para reduzir perda de dados. Sessões concluídas alimentarão metas de treino e a pontuação de categoria Físico com a deduplicação já existente.
 
 O design seguirá o brutalismo editorial fitness do CAVEIRA: cards densos, números monoespaçados, vermelho para esforço/ação crítica, verde para série salva, cronômetro de descanso visível e controles grandes no celular. O acompanhamento não exigirá voltar à guia de criação e não prescreverá cargas sem contexto nem incentivará treino com dor ou ausência de recuperação.
+
+## Evolução aprovada — pontuação, recompensas, metas e relatórios
+
+### Regras aprovadas
+
+- A pontuação nova usa os valores 4, 6, 8, 10, 12 e 14, adaptados às categorias existentes sem apagar categorias legadas.
+- Distribuição inicial: Outros 4; Mente, Hábitos e Relacionamentos 6; Físico e Saúde 8; Estudos e Desenvolvimento pessoal 10; Alimentação 12; Trabalho e Financeiro 14.
+- Cada atividade recebe sua própria movimentação, mesmo quando várias atividades compartilham categoria no mesmo dia.
+- Cumprimento gera o valor integral; falha normal perde metade; falha corrosiva perde o dobro; saldo negativo é permitido.
+- A configuração corrosiva será persistida em hábitos e tarefas. Movimentações serão imutáveis e deduplicadas por usuário, origem, ocorrência e resultado.
+- Registros antigos não serão recalculados pelas regras novas. O saldo legado será documentado e mantido separado do ledger novo.
+- Treinos deixam de gerar novos pontos automaticamente. Fichas, sessões, séries, cargas e histórico permanecem; integração com metas só ocorre por vínculo explícito.
+- O assistente financeiro existente permanece, mas não será usado nas novas análises determinísticas nem receberá novas integrações.
+- Notas geral e por categoria usam 85–100 Excelente, 70–84 Bom, 50–69 Regular e 0–49 Precisa melhorar; sem dados suficientes, o resultado será “Dados insuficientes”.
+
+### Arquitetura de dados aprovada
+
+- Ampliar `point_transactions` com categoria, tipo de movimentação, tipo de origem, origem, data de ocorrência e chave de idempotência; preservar `referenceId` legado.
+- Adicionar configuração corrosiva em `habits` e `tasks`.
+- Criar entidades próprias para recompensas e resgates, migrando registros antigos de `moduleRecords` sem apagar o histórico.
+- Criar fontes de metas e entradas manuais de progresso, com pesos/proporções e referências escopadas por usuário.
+- Manter treinos em suas tabelas próprias e remover somente a geração futura de pontos no encerramento da sessão.
+- Atualizar backup/restauração para todas as novas tabelas, fontes, movimentações e referências remapeadas.
+
+### Ordem de implementação aprovada
+
+1. Ledger novo, corrosividade, idempotência e compatibilidade com histórico legado.
+2. Loja de recompensas, resgates e débito negativo no ledger.
+3. Metas múltiplas, indicadores, proporções e progresso manual histórico.
+4. Independência de treinos e vínculo opcional com metas.
+5. Dashboard, relatórios, notas, critérios e estatísticas separadas de treino.
+6. Backup, segurança, migrações, testes de isolamento e validação visual.
+
+Cada etapa exige typecheck, testes direcionados, revisão de migração e checkpoint antes de avançar para a próxima.

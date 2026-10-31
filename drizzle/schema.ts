@@ -28,6 +28,7 @@ export const habits = mysqlTable("habits", {
   userId: int("userId").notNull().references(() => users.id),
   name: varchar("name", { length: 160 }).notNull(),
   category: varchar("category", { length: 80 }).default("Disciplina").notNull(),
+  isCorrosive: boolean("isCorrosive").default(false).notNull(),
   frequency: mysqlEnum("frequency", ["daily", "weekly", "custom"]).default("daily").notNull(),
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -53,6 +54,7 @@ export const tasks = mysqlTable("tasks", {
   title: varchar("title", { length: 200 }).notNull(),
   description: text("description"),
   category: varchar("category", { length: 80 }).default("Geral").notNull(),
+  isCorrosive: boolean("isCorrosive").default(false).notNull(),
   priority: mysqlEnum("priority", ["low", "medium", "high"]).default("medium").notNull(),
   status: mysqlEnum("status", ["todo", "in_progress", "completed"]).default("todo").notNull(),
   dueDate: date("dueDate"),
@@ -126,14 +128,41 @@ export const userSettings = mysqlTable("user_settings", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+export const pointActivities = mysqlTable("point_activities", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  sourceType: varchar("sourceType", { length: 32 }).notNull(),
+  sourceId: int("sourceId").notNull(),
+  occurrenceDate: date("occurrenceDate").notNull(),
+  category: varchar("category", { length: 80 }).notNull(),
+  basePoints: int("basePoints").notNull(),
+  isCorrosive: boolean("isCorrosive").default(false).notNull(),
+  status: mysqlEnum("status", ["completed", "missed"]).notNull(),
+  version: int("version").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  activityIdentity: uniqueIndex("point_activities_identity_uq").on(table.userId, table.sourceType, table.sourceId, table.occurrenceDate),
+}));
+
 export const pointTransactions = mysqlTable("point_transactions", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().references(() => users.id),
   points: int("points").notNull(),
   reason: varchar("reason", { length: 200 }).notNull(),
   referenceId: int("referenceId"),
+  activityId: int("activityId").references(() => pointActivities.id),
+  category: varchar("category", { length: 80 }).default("Outros").notNull(),
+  movementType: mysqlEnum("movementType", ["legacy", "earned", "missed", "corrosive_missed", "redemption", "adjustment"]).default("legacy").notNull(),
+  sourceType: varchar("sourceType", { length: 32 }),
+  sourceId: int("sourceId"),
+  occurrenceDate: date("occurrenceDate"),
+  idempotencyKey: varchar("idempotencyKey", { length: 180 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, table => ({
+  ledgerDateIdx: index("point_transactions_user_date_idx").on(table.userId, table.occurrenceDate),
+  idempotencyIdx: uniqueIndex("point_transactions_user_idempotency_uq").on(table.userId, table.idempotencyKey),
+}));
 
 export const exerciseLibrary = mysqlTable("exercise_library", {
   id: int("id").autoincrement().primaryKey(),

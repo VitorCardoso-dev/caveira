@@ -13,6 +13,7 @@ export const backupPayloadSchema = z.object({
   goals: z.array(backupRow).max(1000).default([]),
   focusSessions: z.array(backupRow).max(5000).default([]),
   pointTransactions: z.array(backupRow).max(10000).default([]),
+  pointActivities: z.array(backupRow).max(20000).default([]),
   auditLogs: z.array(backupRow).max(20000).default([]),
   settings: backupRow.nullable().default(null),
   exerciseLibrary: z.array(backupRow).max(5000).default([]),
@@ -70,6 +71,7 @@ export function assertBackupRelationships(payload: BackupPayload) {
   const planIds = new Set(payload.trainingPlans.map(row => rowId(row, "Ficha")));
   const exerciseIds = new Set(payload.trainingExercises.map(row => rowId(row, "Exercício")));
   const sessionIds = new Set(payload.trainingSessions.map(row => rowId(row, "Sessão")));
+  const pointActivityIds = new Set(payload.pointActivities.map(row => rowId(row, "Atividade pontuável")));
 
   for (const row of payload.habitCompletions) {
     if (!habitIds.has(requiredNumber(row, "habitId", "Conclusão de hábito"))) throw new Error("O backup contém uma conclusão ligada a um hábito inexistente.");
@@ -81,6 +83,16 @@ export function assertBackupRelationships(payload: BackupPayload) {
   for (const row of payload.goals) {
     const refId = optionalNumber(row, "automationRefId");
     if (refId !== null && row.automationType === "habit" && !habitIds.has(refId)) throw new Error("O backup contém uma meta ligada a um hábito inexistente.");
+  }
+  for (const row of payload.pointActivities) {
+    const sourceType = requiredString(row, "sourceType", "Atividade pontuável");
+    const sourceId = requiredNumber(row, "sourceId", "Atividade pontuável");
+    if (sourceType === "habit" && !habitIds.has(sourceId)) throw new Error("O backup contém uma atividade pontuável ligada a um hábito inexistente.");
+    if (sourceType === "task" && !payload.tasks.some(task => rowId(task, "Tarefa") === sourceId)) throw new Error("O backup contém uma atividade pontuável ligada a uma tarefa inexistente.");
+  }
+  for (const row of payload.pointTransactions) {
+    const activityId = optionalNumber(row, "activityId");
+    if (activityId !== null && !pointActivityIds.has(activityId)) throw new Error("O backup contém uma transação ligada a uma atividade pontuável inexistente.");
   }
   for (const row of payload.trainingExercises) {
     if (!planIds.has(requiredNumber(row, "planId", "Exercício"))) throw new Error("O backup contém um exercício ligado a uma ficha inexistente.");

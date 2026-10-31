@@ -7,6 +7,7 @@ import {
   habitCompletions,
   habits,
   moduleRecords,
+  pointActivities,
   pointTransactions,
   tasks,
   trainingExercises,
@@ -25,6 +26,7 @@ export const usersRelations = relations(users, ({ many, one }) => ({
   focusSessions: many(focusSessions),
   moduleRecords: many(moduleRecords),
   auditLogs: many(auditLogs),
+  pointActivities: many(pointActivities),
   pointTransactions: many(pointTransactions),
   settings: one(userSettings),
   exerciseLibrary: many(exerciseLibrary),
@@ -72,6 +74,12 @@ export const userSettingsRelations = relations(userSettings, ({ one }) => ({
 
 export const pointTransactionsRelations = relations(pointTransactions, ({ one }) => ({
   user: one(users, { fields: [pointTransactions.userId], references: [users.id] }),
+  activity: one(pointActivities, { fields: [pointTransactions.activityId], references: [pointActivities.id] }),
+}));
+
+export const pointActivitiesRelations = relations(pointActivities, ({ one, many }) => ({
+  user: one(users, { fields: [pointActivities.userId], references: [users.id] }),
+  transactions: many(pointTransactions),
 }));
 
 export const exerciseLibraryRelations = relations(exerciseLibrary, ({ one, many }) => ({
