@@ -721,8 +721,6 @@ export const appRouter = router({
       const session = await db.select().from(trainingSessions).where(and(eq(trainingSessions.id, input.sessionId), eq(trainingSessions.userId, ctx.user.id))).limit(1);
       if (!session[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Sessão não encontrada." });
       await db.update(trainingSessions).set({ status: "completed", endedAt: new Date(), notes: input.notes || null }).where(and(eq(trainingSessions.id, input.sessionId), eq(trainingSessions.userId, ctx.user.id)));
-      const point = await db.select({ id: pointTransactions.id }).from(pointTransactions).where(and(eq(pointTransactions.userId, ctx.user.id), eq(pointTransactions.referenceId, input.sessionId))).limit(1);
-      if (!point[0]) await db.insert(pointTransactions).values({ userId: ctx.user.id, points: 5, reason: "Sessão de treino concluída", referenceId: input.sessionId });
       return { success: true } as const;
     }),
   }),
