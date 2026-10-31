@@ -5,6 +5,7 @@ import {
   auditLogs,
   focusSessions,
   goals,
+  goalSources,
   habitCompletions,
   habits,
   moduleRecords,
@@ -156,14 +157,17 @@ export function calculateGoalProgress(goal: { automationType: string; automation
 }
 
 async function hydrateGoalProgress(db: Awaited<ReturnType<typeof requireDb>>, userId: number, rows: typeof goals.$inferSelect[], today: string) {
-  const [completions, taskRows, focusRows, records] = await Promise.all([
+  const [completions, taskRows, focusRows, records, sourceRows] = await Promise.all([
     db.select().from(habitCompletions).where(eq(habitCompletions.userId, userId)),
     db.select().from(tasks).where(eq(tasks.userId, userId)),
     db.select().from(focusSessions).where(eq(focusSessions.userId, userId)),
     db.select().from(moduleRecords).where(eq(moduleRecords.userId, userId)),
+    db.select().from(goalSources).where(eq(goalSources.userId, userId)),
   ]);
   return rows.map(goal => {
-    const bounded = calculateGoalProgress(goal, { habitCompletions: completions, tasks: taskRows, focus: focusRows, trainingDates: records.filter(item => item.module === "treinos").map(item => item.recordDate ?? item.createdAt), nutritionDates: records.filter(item => item.module === "alimentacao").map(item => item.recordDate ?? item.createdAt) }, today);
+    const source = { habitCompletions: completions, tasks: taskRows, focus: focusRows, trainingDates: records.filter(item => item.module === "treinos").map(item => item.recordDate ?? item.createdAt), nutritionDates: records.filter(item => item.module === "alimentacao").map(item => item.recordDate ?? item.createdAt) };
+    const sources = sourceRows.filter(item => item.goalId === goal.id);
+    const bounded = sources.length ? Math.min(goal.target, Math.max(0, Math.round(sources.reduce((sum, item) => sum + calculateGoalProgress({ ...goal, automationType: item.sourceType, automationRefId: item.sourceId, progress: item.sourceType === "manual" ? goal.progress : 0 }, source, today) * item.weightPercent / 100, 0)))) : calculateGoalProgress(goal, source, today);
     return { ...goal, progress: bounded, computedStatus: goal.automationType !== "manual" && bounded >= goal.target ? "completed" : goal.status, isOverdue: Boolean(goal.deadline && dateKey(goal.deadline) < today && bounded < goal.target) };
   });
 }
@@ -229,6 +233,7 @@ const goalInput = z.object({
   deadline: daySchema.nullable().optional(),
   automationType: z.enum(["manual", "habit", "tasks", "focus", "training", "nutrition"]).default("manual"),
   automationRefId: z.number().int().positive().nullable().optional(),
+  sources: z.array(z.object({ sourceType: z.enum(["habit", "tasks", "focus", "training", "nutrition", "manual"]), sourceId: idSchema.nullable().optional(), weightPercent: z.number().int().min(1).max(100) })).max(8).optional(),
 });
 
 const trainingPlanInput = z.object({
@@ -487,12 +492,16 @@ export const appRouter = router({
   goals: router({
     create: protectedProcedure.input(goalInput).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
+      if (input.sources && input.sources.reduce((sum, source) => sum + source.weightPercent, 0) !== 100) throw new TRPCError({ code: "BAD_REQUEST", message: "As proporções das fontes devem somar 100%." });
       if (input.automationType === "habit") {
         const ownHabit = input.automationRefId ? await db.select({ id: habits.id }).from(habits).where(and(eq(habits.id, input.automationRefId), eq(habits.userId, ctx.user.id))).limit(1) : [];
         if (!ownHabit[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha um hábito da sua conta para automatizar esta meta." });
       }
       const inserted = await db.insert(goals).values({ userId: ctx.user.id, title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null, automationType: input.automationType, automationRefId: input.automationType === "habit" ? input.automationRefId ?? null : null, automationStartDate: input.automationType === "manual" ? null : new Date() });
-      if (input.automationType === "tasks") await db.update(goals).set({ automationRefId: Number(inserted[0].insertId) }).where(and(eq(goals.id, Number(inserted[0].insertId)), eq(goals.userId, ctx.user.id)));
+      const goalId = Number(inserted[0].insertId);
+      if (input.automationType === "tasks") await db.update(goals).set({ automationRefId: goalId }).where(and(eq(goals.id, goalId), eq(goals.userId, ctx.user.id)));
+      const sources = input.sources ?? (input.automationType !== "manual" ? [{ sourceType: input.automationType, sourceId: input.automationType === "habit" ? input.automationRefId ?? null : null, weightPercent: 100 }] : []);
+      if (sources.length) await db.insert(goalSources).values(sources.map(source => ({ userId: ctx.user.id, goalId, sourceType: source.sourceType, sourceId: source.sourceId ?? null, weightPercent: source.weightPercent })));
       return { success: true } as const;
     }),
     update: protectedProcedure.input(goalInput.extend({ goalId: idSchema, status: z.enum(["active", "completed", "paused"]).optional() })).mutation(async ({ ctx, input }) => {
@@ -504,6 +513,23 @@ export const appRouter = router({
         if (!ownHabit[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha um hábito da sua conta para automatizar esta meta." });
       }
       await db.update(goals).set({ title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null, automationType: input.automationType, automationRefId: input.automationType === "habit" ? input.automationRefId ?? null : null, automationStartDate: input.automationType === "manual" ? null : new Date(), status: input.status ?? "active" }).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)));
+      if (input.sources) {
+        await db.delete(goalSources).where(and(eq(goalSources.goalId, input.goalId), eq(goalSources.userId, ctx.user.id)));
+        await db.insert(goalSources).values(input.sources.map(source => ({ userId: ctx.user.id, goalId: input.goalId, sourceType: source.sourceType, sourceId: source.sourceId ?? null, weightPercent: source.weightPercent })));
+      }
+      return { success: true } as const;
+    }),
+    sources: protectedProcedure.input(z.object({ goalId: idSchema })).query(async ({ ctx, input }) => {
+      const db = await requireDb();
+      return db.select().from(goalSources).where(and(eq(goalSources.goalId, input.goalId), eq(goalSources.userId, ctx.user.id)));
+    }),
+    setSources: protectedProcedure.input(z.object({ goalId: idSchema, sources: z.array(z.object({ sourceType: z.enum(["habit", "tasks", "focus", "training", "nutrition", "manual"]), sourceId: idSchema.nullable().optional(), weightPercent: z.number().int().min(1).max(100) })).max(8) })).mutation(async ({ ctx, input }) => {
+      if (input.sources.reduce((sum, source) => sum + source.weightPercent, 0) !== 100) throw new TRPCError({ code: "BAD_REQUEST", message: "As proporções das fontes devem somar 100%." });
+      const db = await requireDb();
+      const ownGoal = await db.select({ id: goals.id }).from(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id))).limit(1);
+      if (!ownGoal[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Meta não encontrada." });
+      await db.delete(goalSources).where(and(eq(goalSources.goalId, input.goalId), eq(goalSources.userId, ctx.user.id)));
+      if (input.sources.length) await db.insert(goalSources).values(input.sources.map(source => ({ userId: ctx.user.id, goalId: input.goalId, sourceType: source.sourceType, sourceId: source.sourceId ?? null, weightPercent: source.weightPercent })));
       return { success: true } as const;
     }),
     updateProgress: protectedProcedure.input(z.object({ goalId: idSchema, progress: z.number().int().min(0).max(1000000) })).mutation(async ({ ctx, input }) => {
@@ -867,12 +893,13 @@ export const appRouter = router({
     export: protectedProcedure.query(async ({ ctx }) => {
       const db = await requireDb();
       const userId = ctx.user.id;
-      const [recordRows, habitRows, completionRows, taskRows, goalRows, focusRows, activityRows, pointRows, auditRows, rewardRows, redemptionRows, settingsRows, libraryRows, planRows, exerciseRows, sessionRows, setRows] = await Promise.all([
+      const [recordRows, habitRows, completionRows, taskRows, goalRows, goalSourceRows, focusRows, activityRows, pointRows, auditRows, rewardRows, redemptionRows, settingsRows, libraryRows, planRows, exerciseRows, sessionRows, setRows] = await Promise.all([
         db.select().from(moduleRecords).where(eq(moduleRecords.userId, userId)),
         db.select().from(habits).where(eq(habits.userId, userId)),
         db.select().from(habitCompletions).where(eq(habitCompletions.userId, userId)),
         db.select().from(tasks).where(eq(tasks.userId, userId)),
         db.select().from(goals).where(eq(goals.userId, userId)),
+        db.select().from(goalSources).where(eq(goalSources.userId, userId)),
         db.select().from(focusSessions).where(eq(focusSessions.userId, userId)),
         db.select().from(pointActivities).where(eq(pointActivities.userId, userId)),
         db.select().from(pointTransactions).where(eq(pointTransactions.userId, userId)),
@@ -894,6 +921,7 @@ export const appRouter = router({
         habitCompletions: completionRows,
         tasks: taskRows,
         goals: goalRows,
+        goalSources: goalSourceRows,
         focusSessions: focusRows,
         pointActivities: activityRows,
         pointTransactions: pointRows,
@@ -923,7 +951,7 @@ export const appRouter = router({
         if (typeof value === "string") { try { const parsed = JSON.parse(value); return JSON.stringify(parsed && typeof parsed === "object" ? parsed : {}); } catch { return "{}"; } }
         return "{}";
       };
-      const count = { records: 0, habits: 0, habitCompletions: 0, tasks: 0, goals: 0, focusSessions: 0, pointActivities: 0, pointTransactions: 0, auditLogs: 0, rewards: 0, rewardRedemptions: 0, settings: 0, exerciseLibrary: 0, trainingPlans: 0, trainingExercises: 0, trainingSessions: 0, trainingSets: 0 };
+      const count = { records: 0, habits: 0, habitCompletions: 0, tasks: 0, goals: 0, goalSources: 0, focusSessions: 0, pointActivities: 0, pointTransactions: 0, auditLogs: 0, rewards: 0, rewardRedemptions: 0, settings: 0, exerciseLibrary: 0, trainingPlans: 0, trainingExercises: 0, trainingSessions: 0, trainingSets: 0 };
       const maps = { habits: new Map<number, number>(), goals: new Map<number, number>(), library: new Map<number, number>(), plans: new Map<number, number>(), exercises: new Map<number, number>(), sessions: new Map<number, number>(), tasks: new Map<number, number>(), records: new Map<number, number>(), pointActivities: new Map<number, number>(), pointTransactions: new Map<number, number>(), rewards: new Map<number, number>() };
 
       await db.transaction(async tx => {
@@ -954,6 +982,14 @@ export const appRouter = router({
           const oldId = rowId(row, "Recompensa");
           const result = await tx.insert(rewards).values({ userId, title: requiredString(row, "title", "Recompensa"), description: optionalString(row, "description"), category: text(row, "category", "Recompensa", "Lazer"), imageUrl: optionalString(row, "imageUrl"), costPoints: Math.max(0, number(row, "costPoints")), status: enumValue(row, "status", ["active", "archived"] as const, "active") });
           maps.rewards.set(oldId, Number(result[0].insertId)); count.rewards += 1;
+        }
+        for (const row of payload.goalSources) {
+          const goalId = maps.goals.get(requiredNumber(row, "goalId", "Fonte de meta"));
+          if (!goalId) throw new Error("A fonte de meta aponta para uma meta inexistente.");
+          const sourceType = text(row, "sourceType", "Fonte de meta", "manual");
+          const oldSourceId = optionalNumber(row, "sourceId");
+          const sourceId = oldSourceId === null ? null : sourceType === "habit" ? maps.habits.get(oldSourceId) ?? null : sourceType === "tasks" ? maps.tasks.get(oldSourceId) ?? null : oldSourceId;
+          await tx.insert(goalSources).values({ userId, goalId, sourceType, sourceId, weightPercent: Math.max(1, Math.min(100, number(row, "weightPercent") || 100)) }); count.goalSources += 1;
         }
         for (const row of payload.habitCompletions) {
           const habitId = maps.habits.get(requiredNumber(row, "habitId", "Conclusão de hábito"));

@@ -10,7 +10,8 @@ export const backupPayloadSchema = z.object({
   habits: z.array(backupRow).max(1000).default([]),
   habitCompletions: z.array(backupRow).max(10000).default([]),
   tasks: z.array(backupRow).max(5000).default([]),
-  goals: z.array(backupRow).max(1000).default([]),
+  goals: z.array(backupRow).max(5000).default([]),
+  goalSources: z.array(backupRow).max(20000).default([]),
   focusSessions: z.array(backupRow).max(5000).default([]),
   pointTransactions: z.array(backupRow).max(10000).default([]),
   pointActivities: z.array(backupRow).max(20000).default([]),
@@ -69,6 +70,11 @@ export function asDate(value: unknown, label: string, dateOnly = false) {
 export function assertBackupRelationships(payload: BackupPayload) {
   const habitIds = new Set(payload.habits.map(row => rowId(row, "Hábito")));
   const goalIds = new Set(payload.goals.map(row => rowId(row, "Meta")));
+  for (const row of payload.goalSources) {
+    if (!goalIds.has(requiredNumber(row, "goalId", "Fonte de meta"))) throw new Error("A fonte de meta aponta para uma meta inexistente.");
+    const weight = requiredNumber(row, "weightPercent", "Fonte de meta");
+    if (weight < 1 || weight > 100) throw new Error("A proporção da fonte de meta é inválida.");
+  }
   const libraryIds = new Set(payload.exerciseLibrary.map(row => rowId(row, "Exercício da biblioteca")));
   const planIds = new Set(payload.trainingPlans.map(row => rowId(row, "Ficha")));
   const exerciseIds = new Set(payload.trainingExercises.map(row => rowId(row, "Exercício")));

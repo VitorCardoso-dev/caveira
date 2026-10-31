@@ -82,6 +82,16 @@ export const goals = mysqlTable("goals", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+export const goalSources = mysqlTable("goal_sources", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  goalId: int("goalId").notNull().references(() => goals.id, { onDelete: "cascade" }),
+  sourceType: varchar("sourceType", { length: 24 }).notNull(),
+  sourceId: int("sourceId"),
+  weightPercent: int("weightPercent").default(100).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({ goalIdx: index("goal_sources_goal_idx").on(table.goalId) }));
+
 export const focusSessions = mysqlTable("focus_sessions", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().references(() => users.id),

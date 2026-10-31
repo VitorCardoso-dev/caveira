@@ -11,6 +11,7 @@ describe("backup completo", () => {
       habits: [row(1)],
       habitCompletions: [row(2, { habitId: 1 })],
       goals: [row(3, { automationType: "habit", automationRefId: 1 })],
+      goalSources: [row(12, { goalId: 3, sourceType: "habit", sourceId: 1, weightPercent: 100 })],
       tasks: [row(4, { goalId: 3 })],
       pointActivities: [row(10, { sourceType: "habit", sourceId: 1, occurrenceDate: "2026-10-30", category: "Hábitos", basePoints: 6, status: "completed" })],
       pointTransactions: [row(11, { activityId: 10, points: 6, reason: "Hábito cumprido" })],
