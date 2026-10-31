@@ -9,6 +9,8 @@ import {
   moduleRecords,
   pointActivities,
   pointTransactions,
+  rewardRedemptions,
+  rewards,
   tasks,
   trainingExercises,
   trainingPlans,
@@ -28,6 +30,8 @@ export const usersRelations = relations(users, ({ many, one }) => ({
   auditLogs: many(auditLogs),
   pointActivities: many(pointActivities),
   pointTransactions: many(pointTransactions),
+  rewards: many(rewards),
+  rewardRedemptions: many(rewardRedemptions),
   settings: one(userSettings),
   exerciseLibrary: many(exerciseLibrary),
   trainingPlans: many(trainingPlans),
@@ -80,6 +84,17 @@ export const pointTransactionsRelations = relations(pointTransactions, ({ one })
 export const pointActivitiesRelations = relations(pointActivities, ({ one, many }) => ({
   user: one(users, { fields: [pointActivities.userId], references: [users.id] }),
   transactions: many(pointTransactions),
+}));
+
+export const rewardsRelations = relations(rewards, ({ one, many }) => ({
+  user: one(users, { fields: [rewards.userId], references: [users.id] }),
+  redemptions: many(rewardRedemptions),
+}));
+
+export const rewardRedemptionsRelations = relations(rewardRedemptions, ({ one }) => ({
+  user: one(users, { fields: [rewardRedemptions.userId], references: [users.id] }),
+  reward: one(rewards, { fields: [rewardRedemptions.rewardId], references: [rewards.id] }),
+  pointTransaction: one(pointTransactions, { fields: [rewardRedemptions.pointTransactionId], references: [pointTransactions.id] }),
 }));
 
 export const exerciseLibraryRelations = relations(exerciseLibrary, ({ one, many }) => ({

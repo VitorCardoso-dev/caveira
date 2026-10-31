@@ -10,6 +10,8 @@ import {
   moduleRecords,
   pointActivities,
   pointTransactions,
+  rewardRedemptions,
+  rewards,
   tasks,
   exerciseLibrary,
   trainingExercises,
@@ -194,6 +196,14 @@ const recordInput = z.object({
   amountCents: z.number().int().min(-1000000000).max(1000000000).default(0),
   recordDate: daySchema.nullable().optional(),
   details: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])).default({}),
+});
+
+const rewardInput = z.object({
+  title: z.string().trim().min(2).max(160),
+  description: z.string().trim().max(500).nullable().optional(),
+  category: z.string().trim().max(80).default("Lazer"),
+  imageUrl: z.string().trim().url().max(1000).nullable().optional(),
+  costPoints: z.number().int().min(0).max(1000000),
 });
 
 const habitInput = z.object({
@@ -563,6 +573,49 @@ export const appRouter = router({
     }),
   }),
 
+  rewards: router({
+    list: protectedProcedure.query(async ({ ctx }) => {
+      const db = await requireDb();
+      const [items, redemptions] = await Promise.all([
+        db.select().from(rewards).where(eq(rewards.userId, ctx.user.id)).orderBy(desc(rewards.updatedAt)),
+        db.select().from(rewardRedemptions).where(eq(rewardRedemptions.userId, ctx.user.id)).orderBy(desc(rewardRedemptions.redeemedAt)),
+      ]);
+      return { items, redemptions };
+    }),
+    create: protectedProcedure.input(rewardInput).mutation(async ({ ctx, input }) => {
+      const db = await requireDb();
+      const inserted = await db.insert(rewards).values({ userId: ctx.user.id, title: input.title, description: input.description || null, category: input.category, imageUrl: input.imageUrl || null, costPoints: input.costPoints, status: "active" });
+      return { success: true, id: Number(inserted[0].insertId) } as const;
+    }),
+    update: protectedProcedure.input(rewardInput.extend({ rewardId: idSchema })).mutation(async ({ ctx, input }) => {
+      const db = await requireDb();
+      const own = await db.select({ id: rewards.id }).from(rewards).where(and(eq(rewards.id, input.rewardId), eq(rewards.userId, ctx.user.id))).limit(1);
+      if (!own[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Recompensa não encontrada." });
+      await db.update(rewards).set({ title: input.title, description: input.description || null, category: input.category, imageUrl: input.imageUrl || null, costPoints: input.costPoints }).where(and(eq(rewards.id, input.rewardId), eq(rewards.userId, ctx.user.id)));
+      return { success: true } as const;
+    }),
+    archive: protectedProcedure.input(z.object({ rewardId: idSchema })).mutation(async ({ ctx, input }) => {
+      const db = await requireDb();
+      const result = await db.update(rewards).set({ status: "archived" }).where(and(eq(rewards.id, input.rewardId), eq(rewards.userId, ctx.user.id)));
+      if (!result[0]?.affectedRows) throw new TRPCError({ code: "NOT_FOUND", message: "Recompensa não encontrada." });
+      return { success: true } as const;
+    }),
+    redeem: protectedProcedure.input(z.object({ rewardId: idSchema, idempotencyKey: z.string().trim().min(8).max(180) })).mutation(async ({ ctx, input }) => {
+      const db = await requireDb();
+      return db.transaction(async tx => {
+        const reward = await tx.select().from(rewards).where(and(eq(rewards.id, input.rewardId), eq(rewards.userId, ctx.user.id), eq(rewards.status, "active"))).limit(1);
+        if (!reward[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Recompensa não encontrada ou arquivada." });
+        const existing = await tx.select({ id: pointTransactions.id }).from(pointTransactions).where(and(eq(pointTransactions.userId, ctx.user.id), eq(pointTransactions.idempotencyKey, input.idempotencyKey))).limit(1);
+        if (existing[0]) return { success: true, duplicate: true } as const;
+        const today = new Date();
+        const occurrenceDate = new Date(`${today.toISOString().slice(0, 10)}T00:00:00.000Z`);
+        const movement = await tx.insert(pointTransactions).values({ userId: ctx.user.id, points: -reward[0].costPoints, reason: `Resgate: ${reward[0].title}`, referenceId: reward[0].id, category: "Outros", movementType: "redemption", sourceType: "reward", sourceId: reward[0].id, occurrenceDate, idempotencyKey: input.idempotencyKey });
+        await tx.insert(rewardRedemptions).values({ userId: ctx.user.id, rewardId: reward[0].id, costPoints: reward[0].costPoints, pointTransactionId: Number(movement[0].insertId) });
+        return { success: true, duplicate: false } as const;
+      });
+    }),
+  }),
+
   training: router({
     overview: protectedProcedure.query(async ({ ctx }) => {
       const db = await requireDb();
@@ -816,7 +869,7 @@ export const appRouter = router({
     export: protectedProcedure.query(async ({ ctx }) => {
       const db = await requireDb();
       const userId = ctx.user.id;
-      const [recordRows, habitRows, completionRows, taskRows, goalRows, focusRows, activityRows, pointRows, auditRows, settingsRows, libraryRows, planRows, exerciseRows, sessionRows, setRows] = await Promise.all([
+      const [recordRows, habitRows, completionRows, taskRows, goalRows, focusRows, activityRows, pointRows, auditRows, rewardRows, redemptionRows, settingsRows, libraryRows, planRows, exerciseRows, sessionRows, setRows] = await Promise.all([
         db.select().from(moduleRecords).where(eq(moduleRecords.userId, userId)),
         db.select().from(habits).where(eq(habits.userId, userId)),
         db.select().from(habitCompletions).where(eq(habitCompletions.userId, userId)),
@@ -826,6 +879,8 @@ export const appRouter = router({
         db.select().from(pointActivities).where(eq(pointActivities.userId, userId)),
         db.select().from(pointTransactions).where(eq(pointTransactions.userId, userId)),
         db.select().from(auditLogs).where(eq(auditLogs.userId, userId)),
+        db.select().from(rewards).where(eq(rewards.userId, userId)),
+        db.select().from(rewardRedemptions).where(eq(rewardRedemptions.userId, userId)),
         db.select().from(userSettings).where(eq(userSettings.userId, userId)).limit(1),
         db.select().from(exerciseLibrary).where(eq(exerciseLibrary.userId, userId)),
         db.select().from(trainingPlans).where(eq(trainingPlans.userId, userId)),
@@ -845,6 +900,8 @@ export const appRouter = router({
         pointActivities: activityRows,
         pointTransactions: pointRows,
         auditLogs: auditRows,
+        rewards: rewardRows,
+        rewardRedemptions: redemptionRows,
         settings: settingsRows[0] ?? null,
         exerciseLibrary: libraryRows,
         trainingPlans: planRows,
@@ -868,8 +925,8 @@ export const appRouter = router({
         if (typeof value === "string") { try { const parsed = JSON.parse(value); return JSON.stringify(parsed && typeof parsed === "object" ? parsed : {}); } catch { return "{}"; } }
         return "{}";
       };
-      const count = { records: 0, habits: 0, habitCompletions: 0, tasks: 0, goals: 0, focusSessions: 0, pointActivities: 0, pointTransactions: 0, auditLogs: 0, settings: 0, exerciseLibrary: 0, trainingPlans: 0, trainingExercises: 0, trainingSessions: 0, trainingSets: 0 };
-      const maps = { habits: new Map<number, number>(), goals: new Map<number, number>(), library: new Map<number, number>(), plans: new Map<number, number>(), exercises: new Map<number, number>(), sessions: new Map<number, number>(), tasks: new Map<number, number>(), records: new Map<number, number>(), pointActivities: new Map<number, number>() };
+      const count = { records: 0, habits: 0, habitCompletions: 0, tasks: 0, goals: 0, focusSessions: 0, pointActivities: 0, pointTransactions: 0, auditLogs: 0, rewards: 0, rewardRedemptions: 0, settings: 0, exerciseLibrary: 0, trainingPlans: 0, trainingExercises: 0, trainingSessions: 0, trainingSets: 0 };
+      const maps = { habits: new Map<number, number>(), goals: new Map<number, number>(), library: new Map<number, number>(), plans: new Map<number, number>(), exercises: new Map<number, number>(), sessions: new Map<number, number>(), tasks: new Map<number, number>(), records: new Map<number, number>(), pointActivities: new Map<number, number>(), pointTransactions: new Map<number, number>(), rewards: new Map<number, number>() };
 
       await db.transaction(async tx => {
         for (const row of payload.records) {
@@ -894,6 +951,11 @@ export const appRouter = router({
           const oldGoal = optionalNumber(row, "goalId");
           const result = await tx.insert(tasks).values({ userId, title: requiredString(row, "title", "Tarefa"), description: optionalString(row, "description"), category: text(row, "category", "Tarefa", "Geral"), isCorrosive: bool(row, "isCorrosive"), priority: enumValue(row, "priority", ["low", "medium", "high"] as const, "medium"), status: enumValue(row, "status", ["todo", "in_progress", "completed"] as const, "todo"), dueDate: date(row, "dueDate", "Tarefa", true), goalId: oldGoal === null ? null : maps.goals.get(oldGoal) ?? null });
           maps.tasks.set(oldId, Number(result[0].insertId)); count.tasks += 1;
+        }
+        for (const row of payload.rewards) {
+          const oldId = rowId(row, "Recompensa");
+          const result = await tx.insert(rewards).values({ userId, title: requiredString(row, "title", "Recompensa"), description: optionalString(row, "description"), category: text(row, "category", "Recompensa", "Lazer"), imageUrl: optionalString(row, "imageUrl"), costPoints: Math.max(0, number(row, "costPoints")), status: enumValue(row, "status", ["active", "archived"] as const, "active") });
+          maps.rewards.set(oldId, Number(result[0].insertId)); count.rewards += 1;
         }
         for (const row of payload.habitCompletions) {
           const habitId = maps.habits.get(requiredNumber(row, "habitId", "Conclusão de hábito"));
@@ -949,7 +1011,14 @@ export const appRouter = router({
           const oldRef = optionalNumber(row, "referenceId");
           const referenceId = remapPointReference(reason, oldRef, maps);
           const oldActivityId = optionalNumber(row, "activityId");
-          await tx.insert(pointTransactions).values({ userId, points: requiredNumber(row, "points", "Pontuação"), reason, referenceId, activityId: oldActivityId === null ? null : maps.pointActivities.get(oldActivityId) ?? null, category: text(row, "category", "Pontuação", "Outros"), movementType: enumValue(row, "movementType", ["legacy", "earned", "missed", "corrosive_missed", "redemption", "adjustment"] as const, "legacy"), sourceType: optionalString(row, "sourceType"), sourceId: optionalNumber(row, "sourceId"), occurrenceDate: date(row, "occurrenceDate", "Pontuação", true), idempotencyKey: optionalString(row, "idempotencyKey") }); count.pointTransactions += 1;
+          const inserted = await tx.insert(pointTransactions).values({ userId, points: requiredNumber(row, "points", "Pontuação"), reason, referenceId, activityId: oldActivityId === null ? null : maps.pointActivities.get(oldActivityId) ?? null, category: text(row, "category", "Pontuação", "Outros"), movementType: enumValue(row, "movementType", ["legacy", "earned", "missed", "corrosive_missed", "redemption", "adjustment"] as const, "legacy"), sourceType: optionalString(row, "sourceType"), sourceId: optionalNumber(row, "sourceId"), occurrenceDate: date(row, "occurrenceDate", "Pontuação", true), idempotencyKey: optionalString(row, "idempotencyKey") });
+          maps.pointTransactions.set(rowId(row, "Pontuação"), Number(inserted[0].insertId)); count.pointTransactions += 1;
+        }
+        for (const row of payload.rewardRedemptions) {
+          const rewardId = maps.rewards.get(requiredNumber(row, "rewardId", "Resgate"));
+          const pointTransactionId = maps.pointTransactions.get(requiredNumber(row, "pointTransactionId", "Resgate"));
+          if (!rewardId || !pointTransactionId) throw new Error("Não foi possível remapear um resgate de recompensa.");
+          await tx.insert(rewardRedemptions).values({ userId, rewardId, costPoints: Math.max(0, number(row, "costPoints")), pointTransactionId, redeemedAt: date(row, "redeemedAt", "Resgate") ?? new Date() }); count.rewardRedemptions += 1;
         }
         for (const row of payload.auditLogs) {
           const entity = requiredString(row, "entity", "Log de auditoria");

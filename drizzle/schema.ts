@@ -164,6 +164,28 @@ export const pointTransactions = mysqlTable("point_transactions", {
   idempotencyIdx: uniqueIndex("point_transactions_user_idempotency_uq").on(table.userId, table.idempotencyKey),
 }));
 
+export const rewards = mysqlTable("rewards", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  title: varchar("title", { length: 160 }).notNull(),
+  description: varchar("description", { length: 500 }),
+  category: varchar("category", { length: 80 }).default("Lazer").notNull(),
+  imageUrl: varchar("imageUrl", { length: 1000 }),
+  costPoints: int("costPoints").notNull(),
+  status: mysqlEnum("status", ["active", "archived"]).default("active").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const rewardRedemptions = mysqlTable("reward_redemptions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  rewardId: int("rewardId").notNull().references(() => rewards.id),
+  costPoints: int("costPoints").notNull(),
+  pointTransactionId: int("pointTransactionId").notNull().references(() => pointTransactions.id),
+  redeemedAt: timestamp("redeemedAt").defaultNow().notNull(),
+});
+
 export const exerciseLibrary = mysqlTable("exercise_library", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().references(() => users.id),

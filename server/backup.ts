@@ -15,6 +15,8 @@ export const backupPayloadSchema = z.object({
   pointTransactions: z.array(backupRow).max(10000).default([]),
   pointActivities: z.array(backupRow).max(20000).default([]),
   auditLogs: z.array(backupRow).max(20000).default([]),
+  rewards: z.array(backupRow).max(5000).default([]),
+  rewardRedemptions: z.array(backupRow).max(20000).default([]),
   settings: backupRow.nullable().default(null),
   exerciseLibrary: z.array(backupRow).max(5000).default([]),
   trainingPlans: z.array(backupRow).max(1000).default([]),
@@ -72,6 +74,8 @@ export function assertBackupRelationships(payload: BackupPayload) {
   const exerciseIds = new Set(payload.trainingExercises.map(row => rowId(row, "Exercício")));
   const sessionIds = new Set(payload.trainingSessions.map(row => rowId(row, "Sessão")));
   const pointActivityIds = new Set(payload.pointActivities.map(row => rowId(row, "Atividade pontuável")));
+  const rewardIds = new Set(payload.rewards.map(row => rowId(row, "Recompensa")));
+  const pointTransactionIds = new Set(payload.pointTransactions.map(row => rowId(row, "Pontuação")));
 
   for (const row of payload.habitCompletions) {
     if (!habitIds.has(requiredNumber(row, "habitId", "Conclusão de hábito"))) throw new Error("O backup contém uma conclusão ligada a um hábito inexistente.");
@@ -93,6 +97,9 @@ export function assertBackupRelationships(payload: BackupPayload) {
   for (const row of payload.pointTransactions) {
     const activityId = optionalNumber(row, "activityId");
     if (activityId !== null && !pointActivityIds.has(activityId)) throw new Error("O backup contém uma transação ligada a uma atividade pontuável inexistente.");
+  }
+  for (const row of payload.rewardRedemptions) {
+    if (!rewardIds.has(requiredNumber(row, "rewardId", "Resgate")) || !pointTransactionIds.has(requiredNumber(row, "pointTransactionId", "Resgate"))) throw new Error("O backup contém um resgate ligado a uma recompensa ou pontuação inexistente.");
   }
   for (const row of payload.trainingExercises) {
     if (!planIds.has(requiredNumber(row, "planId", "Exercício"))) throw new Error("O backup contém um exercício ligado a uma ficha inexistente.");
