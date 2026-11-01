@@ -31,6 +31,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { asDate, assertBackupRelationships, backupPayloadSchema, optionalNumber, optionalString, remapPointReference, requiredNumber, requiredString, rowId } from "./backup";
 import { rewardCostPoints } from "./rewards";
+import { calculateWalletBalance, summarizeLedgerPeriod } from "./points-ledger";
 
 const daySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida");
 const idSchema = z.number().int().positive();
@@ -346,13 +347,12 @@ export const appRouter = router({
       const goalEarned = goalRows.filter(goal => goal.status === "completed" && dateKey(goal.updatedAt) >= start && dateKey(goal.updatedAt) <= input.today).length * POINTS.goalDone;
       const focusEarned = Math.min(5, Math.floor(focusRows.filter(session => dateKey(session.createdAt) >= start && dateKey(session.createdAt) <= input.today).reduce((sum, session) => sum + session.durationMinutes, 0) / 25)) * POINTS.focusBlock;
       const newLedgerRows = spendingRows.filter(row => row.movementType !== "legacy" && row.occurrenceDate && dateKey(row.occurrenceDate) >= start && dateKey(row.occurrenceDate) <= input.today);
-      const newLedgerEarned = newLedgerRows.reduce((sum, row) => sum + Math.max(0, row.points), 0);
-      const newLedgerLost = newLedgerRows.reduce((sum, row) => sum + Math.min(0, row.points), 0);
-      const earned = Math.max(0, dedupedEarned + goalEarned + focusEarned) + newLedgerEarned;
-      const lost = Math.abs(habitMissed + taskLost + newLedgerLost);
-      const spent = spendingRows.filter(row => row.movementType === "legacy").reduce((sum, row) => sum + Math.max(0, row.points), 0);
-      const net = earned - lost;
-      const walletBalance = net - spent;
+      const ledgerPeriod = summarizeLedgerPeriod(spendingRows, start, input.today);
+      const earned = Math.max(0, dedupedEarned + goalEarned + focusEarned) + ledgerPeriod.earned;
+      const lost = Math.abs(habitMissed + taskLost) + ledgerPeriod.lost;
+      const spent = ledgerPeriod.spent;
+      const net = earned - lost - spent;
+      const walletBalance = calculateWalletBalance(spendingRows);
       const obligations = habitRows.filter(row => row.active && row.frequency === "daily").length * Math.max(0, Math.floor((new Date(`${input.today}T12:00:00Z`).getTime() - new Date(`${start}T12:00:00Z`).getTime()) / 86400000) + 1) + taskRows.filter(task => (task.dueDate && dateKey(task.dueDate) >= start && dateKey(task.dueDate) <= input.today) || task.status === "completed").length;
       const completedObligations = completedHabitDays.size + completedTasks.length;
       return { start, today: input.today, earned, lost, net, spent, walletBalance, completionRate: obligations ? Math.round((completedObligations / obligations) * 100) : 0, breakdown: { habits: habitDone + habitMissed, tasks: completedTaskPoints + taskLost, goals: goalEarned, focus: focusEarned, overdueTasks: overdueTasks.length, newLedger: newLedgerEarned + newLedgerLost }, rules: { categoryPoints: CATEGORY_POINTS, failureFormula: "falha normal perde metade; falha corrosiva perde o dobro", legacyBoundary: NEW_SCORING_START, deduplication: "cada atividade possui uma chave própria; transições repetidas não duplicam o mesmo estado" } };
