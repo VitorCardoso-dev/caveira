@@ -31,7 +31,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { asDate, assertBackupRelationships, backupPayloadSchema, optionalNumber, optionalString, remapPointReference, requiredNumber, requiredString, rowId } from "./backup";
 import { rewardCostPoints } from "./rewards";
-import { calculateActivityTransition, calculateWalletBalance, summarizeLedgerPeriod } from "./points-ledger";
+import { calculateActivityTransition, calculateWalletBalance, calculateWeeklyCompletionRate, summarizeLedgerPeriod } from "./points-ledger";
 import { getReportWindows, isWithinReportPeriod } from "./reporting";
 
 const daySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida");
@@ -363,9 +363,14 @@ export const appRouter = router({
       const spent = ledgerPeriod.spent;
       const net = earned - lost - spent;
       const walletBalance = calculateWalletBalance(spendingRows);
-      const obligations = habitRows.filter(row => row.active && row.frequency === "daily").length * Math.max(0, Math.floor((new Date(`${input.today}T12:00:00Z`).getTime() - new Date(`${start}T12:00:00Z`).getTime()) / 86400000) + 1) + taskRows.filter(task => (task.dueDate && dateKey(task.dueDate) >= start && dateKey(task.dueDate) <= input.today) || task.status === "completed").length;
-      const completedObligations = completedHabitDays.size + completedTasks.length;
-      return { start, today: input.today, earned, lost, net, spent, walletBalance, completionRate: obligations ? Math.round((completedObligations / obligations) * 100) : 0, breakdown: { habits: habitDone + habitMissed, tasks: completedTaskPoints + taskLost, goals: goalEarned, focus: focusEarned, overdueTasks: overdueTasks.length, newLedger: newLedgerRows.reduce((sum, row) => sum + row.points, 0) }, rules: { categoryPoints: CATEGORY_POINTS, failureFormula: "falha normal perde metade; falha corrosiva perde o dobro", legacyBoundary: NEW_SCORING_START, deduplication: "cada atividade possui uma chave própria; transições repetidas não duplicam o mesmo estado" } };
+      const obligationStats = calculateWeeklyCompletionRate(
+        start,
+        input.today,
+        habitRows.filter(row => row.active && row.frequency === "daily"),
+        completionRows,
+        taskRows,
+      );
+      return { start, today: input.today, earned, lost, net, spent, walletBalance, completionRate: obligationStats.rate, breakdown: { habits: habitDone + habitMissed, tasks: completedTaskPoints + taskLost, goals: goalEarned, focus: focusEarned, overdueTasks: overdueTasks.length, newLedger: newLedgerRows.reduce((sum, row) => sum + row.points, 0) }, rules: { categoryPoints: CATEGORY_POINTS, failureFormula: "falha normal perde metade; falha corrosiva perde o dobro", legacyBoundary: NEW_SCORING_START, deduplication: "cada atividade possui uma chave própria; transições repetidas não duplicam o mesmo estado" } };
     }),
   }),
 
