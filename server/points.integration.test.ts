@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { appRouter } from "./routers";
 import { getDb } from "./db";
-import { habits, pointTransactions, rewards, users } from "../drizzle/schema";
+import { focusSessions, goals, habitCompletions, habits, pointTransactions, rewards, tasks, users } from "../drizzle/schema";
 
 const enabled = Boolean(process.env.DATABASE_URL);
 describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
@@ -57,12 +57,12 @@ describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
     expect(retryRedeem).toEqual({ success: true, duplicate: true });
 
     const movements = await db.select().from(pointTransactions).where(eq(pointTransactions.userId, owner.id));
-    expect(movements).toHaveLength(3);
-    expect(movements.reduce((sum, row) => sum + row.points, 0)).toBe(-20);
-    expect(movements.filter(row => row.movementType === "earned")).toHaveLength(1);
-    expect(movements.filter(row => row.movementType === "adjustment")).toHaveLength(1);
-    expect(movements.filter(row => row.movementType === "redemption")).toHaveLength(1);
-
+    const nonZeroMovements = movements.filter(row => row.points !== 0);
+    expect(nonZeroMovements).toHaveLength(3);
+    expect(nonZeroMovements.reduce((sum, row) => sum + row.points, 0)).toBe(-20);
+    expect(nonZeroMovements.filter(row => row.movementType === "earned")).toHaveLength(1);
+    expect(nonZeroMovements.filter(row => row.movementType === "adjustment")).toHaveLength(1);
+    expect(nonZeroMovements.filter(row => row.movementType === "redemption")).toHaveLength(1);
     const weekly = await ownerCaller.points.weekly({ today });
     expect(weekly.walletBalance).toBe(-20);
     expect(weekly.earned).toBe(10);
@@ -78,5 +78,50 @@ describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
     const otherReward = await db.select().from(rewards).where(eq(rewards.userId, other.id));
     expect(ownReward).toHaveLength(1);
     expect(otherReward).toHaveLength(0);
+  });
+  it("migra o saldo legado uma única vez e o soma ao ledger novo", async () => {
+    const owner = await createUser();
+    const legacyDate = new Date("2026-10-26T12:00:00.000Z");
+    const insertedHabit = await db.insert(habits).values({
+      userId: owner.id, name: "Hábito legado", category: "Estudos", isCorrosive: false,
+      frequency: "daily", active: true, createdAt: legacyDate,
+    });
+    const habitId = Number(insertedHabit[0].insertId);
+    await db.insert(habitCompletions).values({
+      userId: owner.id, habitId, day: new Date("2026-10-26T00:00:00.000Z"), status: "completed",
+    });
+    await db.insert(tasks).values({
+      userId: owner.id, title: "Tarefa vencida legada", category: "Estudos", isCorrosive: false,
+      priority: "medium", status: "todo", dueDate: new Date("2026-10-28T00:00:00.000Z"), createdAt: legacyDate,
+    });
+    await db.insert(goals).values({
+      userId: owner.id, title: "Meta legada concluída", category: "Estudos", progress: 100, target: 100,
+      automationType: "manual", status: "completed", createdAt: legacyDate,
+      updatedAt: new Date("2026-10-27T12:00:00.000Z"),
+    });
+    await db.insert(focusSessions).values({
+      userId: owner.id, durationMinutes: 50, startedAt: legacyDate,
+      endedAt: new Date("2026-10-26T12:50:00.000Z"), createdAt: legacyDate,
+    });
+    await db.insert(pointTransactions).values({
+      userId: owner.id, points: 3, reason: "Resgate legado", category: "Outros",
+      movementType: "legacy", occurrenceDate: null,
+    });
+
+    const weekly = await caller(owner).points.weekly({ today: "2026-10-30" });
+    expect(weekly.walletBalance).toBe(3);
+    expect(weekly.earned).toBe(12);
+    expect(weekly.lost).toBe(6);
+    expect(weekly.spent).toBe(0);
+
+    const openingRows = await db.select().from(pointTransactions).where(eq(pointTransactions.userId, owner.id));
+    expect(openingRows.filter(row => row.idempotencyKey === "legacy-opening-balance:v1")).toHaveLength(1);
+    expect(openingRows.find(row => row.idempotencyKey === "legacy-opening-balance:v1")?.points).toBe(6);
+    await caller(owner).points.weekly({ today: "2026-10-30" });
+    const retriedRows = await db.select().from(pointTransactions).where(eq(pointTransactions.userId, owner.id));
+    expect(retriedRows.filter(row => row.idempotencyKey === "legacy-opening-balance:v1")).toHaveLength(1);
+    const history = await caller(owner).points.history({ limit: 10 });
+    expect(history.items.map(row => row.points)).toContain(-3);
+    expect(history.items.map(row => row.points)).toContain(6);
   });
 });

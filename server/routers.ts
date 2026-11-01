@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, lt } from "drizzle-orm";
+import { and, desc, eq, lt, ne } from "drizzle-orm";
 import { z } from "zod";
 import {
   auditLogs,
@@ -31,7 +31,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { asDate, assertBackupRelationships, backupPayloadSchema, optionalNumber, optionalString, remapPointReference, requiredNumber, requiredString, rowId } from "./backup";
 import { rewardCostPoints } from "./rewards";
-import { calculateActivityTransition, calculateWalletBalance, summarizeLedgerPeriod } from "./points-ledger";
+import { calculateActivityTransition, calculateWalletBalance, calculateWeeklyCompletionRate, summarizeLedgerPeriod } from "./points-ledger";
 import { getReportWindows, isWithinReportPeriod } from "./reporting";
 
 const daySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida");
@@ -132,6 +132,58 @@ async function recordActivityOutcomeInTransaction(tx: DbTransaction, input: Acti
 
 async function recordActivityOutcome(db: Db, input: ActivityOutcomeInput) {
   return db.transaction(tx => recordActivityOutcomeInTransaction(tx, input));
+}
+
+async function ensureLegacyOpeningBalance(db: Db, userId: number) {
+  const idempotencyKey = "legacy-opening-balance:v1";
+  await db.transaction(async tx => {
+    const existing = await tx.select({ id: pointTransactions.id }).from(pointTransactions)
+      .where(and(eq(pointTransactions.userId, userId), eq(pointTransactions.idempotencyKey, idempotencyKey))).limit(1);
+    if (existing[0]) return;
+    const start = weekStartKey(NEW_SCORING_START);
+    const end = previousDay(NEW_SCORING_START);
+    const [habitRows, completionRows, taskRows, goalRows, focusRows] = await Promise.all([
+      tx.select().from(habits).where(eq(habits.userId, userId)),
+      tx.select().from(habitCompletions).where(eq(habitCompletions.userId, userId)),
+      tx.select().from(tasks).where(eq(tasks.userId, userId)),
+      tx.select().from(goals).where(eq(goals.userId, userId)),
+      tx.select().from(focusSessions).where(eq(focusSessions.userId, userId)),
+    ]);
+    const inLegacyWindow = (value: Date | string | null) => isWithinReportPeriod(value, start, end);
+    const habitById = new Map(habitRows.map(habit => [habit.id, habit]));
+    const habitStatus = new Map(completionRows.map(row => [String(row.habitId) + ':' + dateKey(row.day), row.status]));
+    let habitMissed = 0;
+    for (const habit of habitRows.filter(row => row.active && row.frequency === 'daily')) {
+      const created = dateKey(habit.createdAt);
+      const firstDay = created > start ? created : start;
+      for (let cursor = new Date(firstDay + 'T12:00:00.000Z'); cursor <= new Date(end + 'T12:00:00.000Z'); cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+        const day = cursor.toISOString().slice(0, 10);
+        if (habitStatus.get(String(habit.id) + ':' + day) !== 'completed') habitMissed += POINTS.habitMissed;
+      }
+    }
+    const habitEvents = completionRows.filter(row => row.status === 'completed' && inLegacyWindow(row.day)).map(row => ({
+      day: dateKey(row.day), category: habitById.get(row.habitId)?.category ?? 'Hábitos', points: POINTS.habitDone,
+    }));
+    const completedLegacyTasks = taskRows.filter(task => task.status === 'completed' && inLegacyWindow(task.updatedAt));
+    const taskEvents = completedLegacyTasks.map(task => ({ day: dateKey(task.updatedAt), category: task.category, points: legacyPointsForCategory(task.category) }));
+    const events = [...habitEvents, ...taskEvents];
+    const dedupeKeys = new Set<string>();
+    let dedupedEarned = 0;
+    for (const event of events) {
+      const key = event.day + ':' + event.category;
+      if (dedupeKeys.has(key)) continue;
+      dedupeKeys.add(key);
+      const sameDayActions = events.filter(item => item.day === event.day && item.category === event.category);
+      dedupedEarned += Math.max(...sameDayActions.map(item => item.points));
+    }
+    const taskLost = taskRows.filter(task => task.status !== 'completed' && task.dueDate && inLegacyWindow(task.dueDate))
+      .reduce((sum, task) => sum - Math.max(2, Math.round(legacyPointsForCategory(task.category) / 2)), 0);
+    const goalEarned = goalRows.filter(goal => goal.status === 'completed' && inLegacyWindow(goal.updatedAt)).length * POINTS.goalDone;
+    const focusMinutes = focusRows.filter(session => inLegacyWindow(session.createdAt)).reduce((sum, session) => sum + session.durationMinutes, 0);
+    const focusEarned = Math.min(5, Math.floor(focusMinutes / 25)) * POINTS.focusBlock;
+    const openingBalance = Math.max(0, dedupedEarned + goalEarned + focusEarned) + habitMissed + taskLost;
+    await tx.insert(pointTransactions).values({ userId, points: openingBalance, reason: 'Saldo inicial migrado', category: 'Outros', movementType: 'adjustment', sourceType: 'system', occurrenceDate: null, idempotencyKey }).onDuplicateKeyUpdate({ set: { idempotencyKey } });
+  });
 }
 
 async function reconcileMissedActivities(db: Db, userId: number, today: string) {
@@ -309,16 +361,17 @@ export const appRouter = router({
   points: router({
     history: protectedProcedure.input(z.object({ cursor: idSchema.optional(), limit: z.number().int().min(1).max(100).default(50) })).query(async ({ ctx, input }) => {
       const db = await requireDb();
-      const filters = [eq(pointTransactions.userId, ctx.user.id)];
+      const filters = [eq(pointTransactions.userId, ctx.user.id), ne(pointTransactions.points, 0)];
       if (input.cursor) filters.push(lt(pointTransactions.id, input.cursor));
       const rows = await db.select().from(pointTransactions).where(and(...filters)).orderBy(desc(pointTransactions.id)).limit(input.limit + 1);
       const hasMore = rows.length > input.limit;
       const items = hasMore ? rows.slice(0, input.limit) : rows;
-      return { items, nextCursor: hasMore ? items[items.length - 1]?.id ?? null : null };
+      return { items: items.map(item => ({ ...item, points: item.movementType === "legacy" ? -Math.abs(item.points) : item.points })), nextCursor: hasMore ? items[items.length - 1]?.id ?? null : null };
     }),
     weekly: protectedProcedure.input(z.object({ today: daySchema })).query(async ({ ctx, input }) => {
       const db = await requireDb();
       const start = weekStartKey(input.today);
+      await ensureLegacyOpeningBalance(db, ctx.user.id);
       await reconcileMissedActivities(db, ctx.user.id, input.today);
       const [habitRows, completionRows, taskRows, goalRows, focusRows, spendingRows] = await Promise.all([
         db.select().from(habits).where(eq(habits.userId, ctx.user.id)),
@@ -363,9 +416,14 @@ export const appRouter = router({
       const spent = ledgerPeriod.spent;
       const net = earned - lost - spent;
       const walletBalance = calculateWalletBalance(spendingRows);
-      const obligations = habitRows.filter(row => row.active && row.frequency === "daily").length * Math.max(0, Math.floor((new Date(`${input.today}T12:00:00Z`).getTime() - new Date(`${start}T12:00:00Z`).getTime()) / 86400000) + 1) + taskRows.filter(task => (task.dueDate && dateKey(task.dueDate) >= start && dateKey(task.dueDate) <= input.today) || task.status === "completed").length;
-      const completedObligations = completedHabitDays.size + completedTasks.length;
-      return { start, today: input.today, earned, lost, net, spent, walletBalance, completionRate: obligations ? Math.round((completedObligations / obligations) * 100) : 0, breakdown: { habits: habitDone + habitMissed, tasks: completedTaskPoints + taskLost, goals: goalEarned, focus: focusEarned, overdueTasks: overdueTasks.length, newLedger: newLedgerRows.reduce((sum, row) => sum + row.points, 0) }, rules: { categoryPoints: CATEGORY_POINTS, failureFormula: "falha normal perde metade; falha corrosiva perde o dobro", legacyBoundary: NEW_SCORING_START, deduplication: "cada atividade possui uma chave própria; transições repetidas não duplicam o mesmo estado" } };
+      const obligationStats = calculateWeeklyCompletionRate(
+        start,
+        input.today,
+        habitRows.filter(row => row.active && row.frequency === "daily"),
+        completionRows,
+        taskRows,
+      );
+      return { start, today: input.today, earned, lost, net, spent, walletBalance, completionRate: obligationStats.rate, breakdown: { habits: habitDone + habitMissed, tasks: completedTaskPoints + taskLost, goals: goalEarned, focus: focusEarned, overdueTasks: overdueTasks.length, newLedger: newLedgerRows.reduce((sum, row) => sum + row.points, 0) }, rules: { categoryPoints: CATEGORY_POINTS, failureFormula: "falha normal perde metade; falha corrosiva perde o dobro", legacyBoundary: NEW_SCORING_START, deduplication: "cada atividade possui uma chave própria; transições repetidas não duplicam o mesmo estado" } };
     }),
   }),
 
@@ -884,7 +942,7 @@ export const appRouter = router({
       });
       return {
         period: month,
-        periods: { counts: "all_time", focusMinutes: "all_time", finance: month, nutrition: "today", gamification: "all_time", dailyStats: "last_14_days" },
+        periods: { counts: { type: "all_time" }, focusMinutes: { type: "all_time" }, finance: { type: "month_to_date", start: windows.monthStart, end: input.today }, nutrition: { type: "today", date: input.today }, gamification: { type: "all_time" }, dailyStats: { type: "rolling_days", days: 14, start: windows.dailyDays[0], end: input.today } },
         counts: { habits: habitRows.length, tasks: taskRows.length, completedTasks: taskRows.filter(task => task.status === "completed").length, goals: goalRows.length, focusSessions: focusRows.length, training: trainingRows.length },
         focusMinutes: focusRows.reduce((sum, session) => sum + session.durationMinutes, 0),
         finance: { income, expenses, balance: income - expenses },
@@ -1032,7 +1090,7 @@ export const appRouter = router({
         goalSources: goalSourceRows,
         focusSessions: focusRows,
         pointActivities: activityRows,
-        pointTransactions: pointRows,
+        pointTransactions: pointRows.filter(row => row.idempotencyKey !== "legacy-opening-balance:v1"),
         auditLogs: auditRows,
         rewards: rewardRows,
         rewardRedemptions: redemptionRows,
@@ -1155,6 +1213,7 @@ export const appRouter = router({
           await tx.insert(trainingSets).values({ userId, sessionId, exerciseId, setNumber: Math.max(1, number(row, "setNumber", 1)), plannedReps: Math.max(1, number(row, "plannedReps", 1)), plannedWeightKg: Math.max(0, number(row, "plannedWeightKg")), actualReps: Math.max(0, number(row, "actualReps")), actualWeightKg: Math.max(0, number(row, "actualWeightKg")), completed: bool(row, "completed"), completedAt: date(row, "completedAt", "Série" ) }); count.trainingSets += 1;
         }
         for (const row of payload.pointTransactions) {
+          if (optionalString(row, "idempotencyKey") === "legacy-opening-balance:v1") continue;
           const reason = requiredString(row, "reason", "Pontuação");
           const sourceType = optionalString(row, "sourceType");
           const oldSourceId = optionalNumber(row, "sourceId");
@@ -1187,6 +1246,7 @@ export const appRouter = router({
           const mapping = entity === "treinos" ? maps.sessions : entity === "tasks" ? maps.tasks : entity === "module_records" ? maps.records : entity === "habits" ? maps.habits : entity === "goals" ? maps.goals : null;
           await tx.insert(auditLogs).values({ userId, action: requiredString(row, "action", "Log de auditoria"), entity, entityId: oldEntityId !== null && mapping ? mapping.get(oldEntityId) ?? null : null, beforeData: optionalString(row, "beforeData"), afterData: optionalString(row, "afterData") }); count.auditLogs += 1;
         }
+        await tx.delete(pointTransactions).where(and(eq(pointTransactions.userId, userId), eq(pointTransactions.idempotencyKey, "legacy-opening-balance:v1")));
         if (payload.settings) {
           const current = await tx.select({ id: userSettings.id }).from(userSettings).where(eq(userSettings.userId, userId)).limit(1);
           if (!current[0]) {

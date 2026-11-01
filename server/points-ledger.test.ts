@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateActivityTransition, calculateWalletBalance, summarizeLedgerPeriod } from "./points-ledger";
+import { calculateActivityTransition, calculateWalletBalance, calculateWeeklyCompletionRate, summarizeLedgerPeriod } from "./points-ledger";
 
 describe("carteira e extrato de pontos", () => {
   it("reconstrói o saldo com créditos, débitos assinados e resgates legados", () => {
@@ -34,5 +34,27 @@ describe("carteira e extrato de pontos", () => {
     expect(calculateActivityTransition("completed", 8, "completed", 8)).toBeNull();
     expect(calculateActivityTransition("missed", -4, "completed", 8)).toBe(12);
     expect(calculateActivityTransition("completed", 8, "missed", -4)).toBe(-12);
+  });
+
+  it("calcula cumprimento com as obrigações que realmente pertencem à semana", () => {
+    const result = calculateWeeklyCompletionRate(
+      "2026-10-26",
+      "2026-11-01",
+      [
+        { id: 1, createdAt: "2026-10-29" },
+        { id: 2, createdAt: "2026-11-02" },
+      ],
+      [
+        { habitId: 1, day: "2026-10-29", status: "completed" },
+        { habitId: 1, day: "2026-10-30", status: "missed" },
+        { habitId: 2, day: "2026-10-30", status: "completed" },
+      ],
+      [
+        { id: 10, dueDate: "2026-10-30", updatedAt: "2026-10-30", status: "completed" },
+        { id: 11, dueDate: "2026-10-31", updatedAt: "2026-10-31", status: "todo" },
+        { id: 12, dueDate: null, updatedAt: "2026-10-20", status: "completed" },
+      ],
+    );
+    expect(result).toEqual({ rate: 33, obligations: 6, completed: 2 });
   });
 });
