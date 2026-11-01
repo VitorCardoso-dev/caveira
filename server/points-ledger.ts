@@ -37,3 +37,38 @@ export function calculateActivityTransition(
   if (currentStatus === nextStatus) return null;
   return nextPoints - currentPoints;
 }
+
+export function calculateWeeklyCompletionRate(
+  start: string,
+  end: string,
+  dailyHabits: Array<{ id: number; createdAt: Date | string }>,
+  completions: Array<{ habitId: number; day: Date | string; status: string }>,
+  tasks: Array<{ id: number; dueDate: Date | string | null; updatedAt: Date | string; status: string }>,
+) {
+  const habitById = new Map(dailyHabits.map(habit => [habit.id, dayKey(habit.createdAt) ?? start]));
+  let habitOpportunities = 0;
+  for (const created of habitById.values()) {
+    const firstDay = created > start ? created : start;
+    if (firstDay > end) continue;
+    for (let cursor = new Date(`${firstDay}T12:00:00.000Z`); cursor <= new Date(`${end}T12:00:00.000Z`); cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+      habitOpportunities += 1;
+    }
+  }
+  const completedHabitDays = new Set(completions
+    .filter(row => row.status === "completed" && habitById.has(row.habitId))
+    .filter(row => {
+      const day = dayKey(row.day);
+      const created = habitById.get(row.habitId)!;
+      return day !== null && day >= start && day <= end && day >= created;
+    })
+    .map(row => `${row.habitId}:${dayKey(row.day)}`));
+  const weeklyTasks = tasks.filter(task => {
+    const dueDay = dayKey(task.dueDate);
+    const completedDay = task.status === "completed" ? dayKey(task.updatedAt) : null;
+    return Boolean((dueDay && dueDay >= start && dueDay <= end) || (completedDay && completedDay >= start && completedDay <= end));
+  });
+  const completedTasks = weeklyTasks.filter(task => task.status === "completed").length;
+  const obligations = habitOpportunities + weeklyTasks.length;
+  const completed = completedHabitDays.size + completedTasks;
+  return { rate: obligations ? Math.round((completed / obligations) * 100) : 0, obligations, completed };
+}
