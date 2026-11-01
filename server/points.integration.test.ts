@@ -102,6 +102,45 @@ describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
     expect(edited.completedAt?.getTime()).toBe(completed.completedAt?.getTime());
   });
 
+  it("registra pontos de metas e foco no ledger, mantendo XP e placar alinhados", async () => {
+    const owner = await createUser();
+    const api = caller(owner);
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+
+    const goal = await api.goals.create({
+      title: "Meta pontuável", category: "Pessoal", target: 1, deadline: null,
+      automationType: "manual", automationRefId: null,
+      sources: [{ sourceType: "manual", sourceId: null, weightPercent: 100 }],
+    });
+    await api.goals.update({
+      goalId: goal.goalId, title: "Meta pontuável", category: "Pessoal", target: 1,
+      deadline: null, automationType: "manual", automationRefId: null,
+      status: "completed",
+    });
+    await api.goals.update({
+      goalId: goal.goalId, title: "Meta pontuável editada", category: "Pessoal", target: 1,
+      deadline: null, automationType: "manual", automationRefId: null,
+    });
+
+    const endedAt = new Date();
+    const startedAt = new Date(endedAt.getTime() - 50 * 60_000);
+    await api.focus.log({ durationMinutes: 50, startedAt: startedAt.toISOString(), endedAt: endedAt.toISOString() });
+    await expect(api.focus.log({
+      durationMinutes: 50,
+      startedAt: new Date(endedAt.getTime() + 60_000).toISOString(),
+      endedAt: new Date(endedAt.getTime() + 120_000).toISOString(),
+    })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+
+    const ledger = await db.select().from(pointTransactions).where(eq(pointTransactions.userId, owner.id));
+    expect(ledger.filter(row => row.sourceType === "goal" && row.points === 8)).toHaveLength(1);
+    expect(ledger.filter(row => row.sourceType === "focus" && row.points === 1)).toHaveLength(2);
+
+    const weekly = await api.points.weekly({ today });
+    expect(weekly.earned).toBe(10);
+    expect(weekly.breakdown.goals).toBe(8);
+    expect(weekly.breakdown.focus).toBe(2);
+  });
+
   it("migra o saldo legado uma única vez e o soma ao ledger novo", async () => {
     const owner = await createUser();
     const legacyDate = new Date("2026-10-26T12:00:00.000Z");
