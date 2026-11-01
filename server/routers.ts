@@ -1,8 +1,10 @@
 import { TRPCError } from "@trpc/server";
+import { randomUUID } from "node:crypto";
 import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import {
   auditLogs,
+  backupImports,
   focusSessions,
   goals,
   goalSources,
@@ -1003,7 +1005,8 @@ export const appRouter = router({
         db.select().from(trainingSets).where(eq(trainingSets.userId, userId)),
       ]);
       return {
-        version: 2,
+        version: 3,
+        exportId: randomUUID(),
         exportedAt: new Date().toISOString(),
         records: recordRows.map(serializeRecord),
         habits: habitRows,
@@ -1043,7 +1046,12 @@ export const appRouter = router({
       const count = { records: 0, habits: 0, habitCompletions: 0, tasks: 0, goals: 0, goalSources: 0, focusSessions: 0, pointActivities: 0, pointTransactions: 0, auditLogs: 0, rewards: 0, rewardRedemptions: 0, settings: 0, exerciseLibrary: 0, trainingPlans: 0, trainingExercises: 0, trainingSessions: 0, trainingSets: 0 };
       const maps = { habits: new Map<number, number>(), goals: new Map<number, number>(), library: new Map<number, number>(), plans: new Map<number, number>(), exercises: new Map<number, number>(), sessions: new Map<number, number>(), tasks: new Map<number, number>(), records: new Map<number, number>(), pointActivities: new Map<number, number>(), pointTransactions: new Map<number, number>(), rewards: new Map<number, number>() };
 
-      await db.transaction(async tx => {
+      const importResult = await db.transaction(async tx => {
+        if (payload.exportId) {
+          const previous = await tx.select({ id: backupImports.id }).from(backupImports).where(and(eq(backupImports.userId, userId), eq(backupImports.exportId, payload.exportId))).limit(1);
+          if (previous[0]) return { duplicate: true } as const;
+          await tx.insert(backupImports).values({ userId, exportId: payload.exportId });
+        }
         for (const row of payload.records) {
           const oldId = rowId(row, "Registro");
           const result = await tx.insert(moduleRecords).values({ userId, module: text(row, "module", "Registro"), title: requiredString(row, "title", "Registro"), subtitle: optionalString(row, "subtitle"), status: text(row, "status", "Registro", "active"), numericValue: number(row, "numericValue"), amountCents: number(row, "amountCents"), recordDate: date(row, "recordDate", "Registro", true), details: details(row.details) });
@@ -1156,8 +1164,10 @@ export const appRouter = router({
             await tx.insert(userSettings).values({ userId, goals: optionalString(row, "goals"), notifications: bool(row, "notifications", true), preferredFocusMinutes: Math.min(120, Math.max(1, number(row, "preferredFocusMinutes", 25))), preferredBreakMinutes: Math.min(60, Math.max(1, number(row, "preferredBreakMinutes", 5))) }); count.settings = 1;
           }
         }
+        return { duplicate: false } as const;
       });
-      return { success: true, imported: count.records, counts: count, message: "Backup validado e mesclado sem sobrescrever dados existentes." } as const;
+      if (importResult.duplicate) return { success: true, duplicate: true, imported: 0, counts: null, message: "Este backup já foi restaurado nesta conta." } as const;
+      return { success: true, duplicate: false, imported: count.records, counts: count, message: "Backup validado e mesclado sem sobrescrever dados existentes." } as const;
     }),
   }),
 
