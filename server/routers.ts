@@ -176,15 +176,16 @@ export function calculateWeightedGoalProgress(goal: Parameters<typeof calculateG
 }
 
 async function hydrateGoalProgress(db: Awaited<ReturnType<typeof requireDb>>, userId: number, rows: typeof goals.$inferSelect[], today: string) {
-  const [completions, taskRows, focusRows, records, sourceRows] = await Promise.all([
+  const [completions, taskRows, focusRows, records, sourceRows, completedTrainingSessions] = await Promise.all([
     db.select().from(habitCompletions).where(eq(habitCompletions.userId, userId)),
     db.select().from(tasks).where(eq(tasks.userId, userId)),
     db.select().from(focusSessions).where(eq(focusSessions.userId, userId)),
     db.select().from(moduleRecords).where(eq(moduleRecords.userId, userId)),
     db.select().from(goalSources).where(eq(goalSources.userId, userId)),
+    db.select().from(trainingSessions).where(and(eq(trainingSessions.userId, userId), eq(trainingSessions.status, "completed"))),
   ]);
   return rows.map(goal => {
-    const source = { habitCompletions: completions, tasks: taskRows, focus: focusRows, trainingDates: records.filter(item => item.module === "treinos").map(item => item.recordDate ?? item.createdAt), nutritionDates: records.filter(item => item.module === "alimentacao").map(item => item.recordDate ?? item.createdAt) };
+    const source = { habitCompletions: completions, tasks: taskRows, focus: focusRows, trainingDates: [...records.filter(item => item.module === "treinos").map(item => item.recordDate ?? item.createdAt), ...completedTrainingSessions.map(item => item.sessionDate)], nutritionDates: records.filter(item => item.module === "alimentacao").map(item => item.recordDate ?? item.createdAt) };
     const sources = sourceRows.filter(item => item.goalId === goal.id);
     const bounded = calculateWeightedGoalProgress({ ...goal, goalId: goal.id }, source, sources, today);
     return { ...goal, progress: bounded, computedStatus: goal.automationType !== "manual" && bounded >= goal.target ? "completed" : goal.status, isOverdue: Boolean(goal.deadline && dateKey(goal.deadline) < today && bounded < goal.target) };
