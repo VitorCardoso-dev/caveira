@@ -147,30 +147,6 @@ async function recordGoalCompletionInTransaction(tx: DbTransaction, userId: numb
   }).onDuplicateKeyUpdate({ set: { idempotencyKey } });
 }
 
-async function recordFocusBlocksInTransaction(tx: DbTransaction, userId: number, sessionId: number, durationMinutes: number, day: string) {
-  const start = weekStartKey(day);
-  const [existing, legacySessions] = await Promise.all([
-    tx.select().from(pointTransactions).where(eq(pointTransactions.userId, userId)),
-    tx.select().from(focusSessions).where(eq(focusSessions.userId, userId)),
-  ]);
-  const legacyUsed = Math.min(5, Math.floor(legacySessions
-    .filter(session => dateKey(session.createdAt) >= start && dateKey(session.createdAt) <= day && dateKey(session.createdAt) < NEW_SCORING_START)
-    .reduce((sum, session) => sum + session.durationMinutes, 0) / 25));
-  const ledgerUsed = existing
-    .filter(row => row.sourceType === "focus" && row.occurrenceDate && dateKey(row.occurrenceDate) >= start && dateKey(row.occurrenceDate) <= day)
-    .reduce((sum, row) => sum + Math.max(0, row.points), 0);
-  const used = Math.min(5, legacyUsed + ledgerUsed);
-  const blocks = Math.min(Math.max(0, 5 - used), Math.floor(durationMinutes / 25));
-  for (let block = 1; block <= blocks; block += 1) {
-    const idempotencyKey = `focus:${start}:block:${used + block}`;
-    await tx.insert(pointTransactions).values({
-      userId, points: POINTS.focusBlock, reason: "Bloco de foco concluído", referenceId: sessionId,
-      category: "Foco", movementType: "earned", sourceType: "focus", sourceId: sessionId,
-      occurrenceDate: new Date(`${day}T00:00:00.000Z`), idempotencyKey,
-    }).onDuplicateKeyUpdate({ set: { idempotencyKey } });
-  }
-}
-
 async function ensureLegacyOpeningBalance(db: Db, userId: number) {
   const idempotencyKey = "legacy-opening-balance:v1";
   await db.transaction(async tx => {
@@ -448,15 +424,12 @@ export const appRouter = router({
       }
       const taskLost = overdueTasks.reduce((sum, task) => sum + (-Math.max(2, Math.round(legacyPointsForCategory(task.category) / 2))), 0);
       const legacyGoalEarned = goalRows.filter(goal => goal.status === "completed" && dateKey(goal.updatedAt) >= start && dateKey(goal.updatedAt) <= input.today && dateKey(goal.updatedAt) < NEW_SCORING_START).length * POINTS.goalDone;
-      const legacyFocusMinutes = focusRows.filter(session => dateKey(session.createdAt) >= start && dateKey(session.createdAt) <= input.today && dateKey(session.createdAt) < NEW_SCORING_START).reduce((sum, session) => sum + session.durationMinutes, 0);
-      const legacyFocusEarned = Math.min(5, Math.floor(legacyFocusMinutes / 25)) * POINTS.focusBlock;
+      const focusEarned = Math.min(5, Math.floor(focusRows.filter(session => dateKey(session.createdAt) >= start && dateKey(session.createdAt) <= input.today).reduce((sum, session) => sum + session.durationMinutes, 0) / 25)) * POINTS.focusBlock;
       const newLedgerRows = spendingRows.filter(row => row.movementType !== "legacy" && row.occurrenceDate && dateKey(row.occurrenceDate) >= start && dateKey(row.occurrenceDate) <= input.today);
       const ledgerPeriod = summarizeLedgerPeriod(spendingRows, start, input.today);
       const goalLedgerEarned = newLedgerRows.filter(row => row.sourceType === "goal" && row.points > 0).reduce((sum, row) => sum + row.points, 0);
-      const focusLedgerEarned = newLedgerRows.filter(row => row.sourceType === "focus" && row.points > 0).reduce((sum, row) => sum + row.points, 0);
       const goalEarned = legacyGoalEarned + goalLedgerEarned;
-      const focusEarned = legacyFocusEarned + focusLedgerEarned;
-      const earned = Math.max(0, dedupedEarned + legacyGoalEarned + legacyFocusEarned) + ledgerPeriod.earned;
+      const earned = Math.max(0, dedupedEarned + legacyGoalEarned + focusEarned) + ledgerPeriod.earned;
       const lost = Math.abs(habitMissed + taskLost) + ledgerPeriod.lost;
       const spent = ledgerPeriod.spent;
       const net = earned - lost - spent;
@@ -1330,22 +1303,9 @@ export const appRouter = router({
       const db = await requireDb();
       return db.select().from(focusSessions).where(eq(focusSessions.userId, ctx.user.id)).orderBy(desc(focusSessions.createdAt)).limit(30);
     }),
-    log: protectedProcedure.input(z.object({
-      durationMinutes: z.number().int().min(1).max(1440),
-      startedAt: z.string().datetime(),
-      endedAt: z.string().datetime(),
-    }).refine(input => {
-      const start = Date.parse(input.startedAt);
-      const end = Date.parse(input.endedAt);
-      const now = Date.now();
-      return Number.isFinite(start) && Number.isFinite(end) && start < end && end <= now + 60_000 &&
-        input.durationMinutes <= Math.ceil((end - start) / 60_000);
-    }, { message: "A duração deve caber entre o início e o fim reais da sessão." })).mutation(async ({ ctx, input }) => {
+    log: protectedProcedure.input(z.object({ durationMinutes: z.number().int().min(1).max(1440), startedAt: z.string().datetime(), endedAt: z.string().datetime() })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
-      await db.transaction(async tx => {
-        const inserted = await tx.insert(focusSessions).values({ userId: ctx.user.id, durationMinutes: input.durationMinutes, startedAt: new Date(input.startedAt), endedAt: new Date(input.endedAt) });
-        await recordFocusBlocksInTransaction(tx, ctx.user.id, Number(inserted[0].insertId), input.durationMinutes, currentDayKey());
-      });
+      await db.insert(focusSessions).values({ userId: ctx.user.id, durationMinutes: input.durationMinutes, startedAt: new Date(input.startedAt), endedAt: new Date(input.endedAt) });
       return { success: true } as const;
     }),
   }),
