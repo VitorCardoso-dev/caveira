@@ -127,6 +127,15 @@ export const auditLogs = mysqlTable("audit_logs", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, table => ({ userCreatedIdx: index("audit_logs_user_created_idx").on(table.userId, table.createdAt) }));
 
+export const backupImports = mysqlTable("backup_imports", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().references(() => users.id),
+  exportId: varchar("exportId", { length: 64 }).notNull(),
+  importedAt: timestamp("importedAt").defaultNow().notNull(),
+}, table => ({
+  userExportUnique: uniqueIndex("backup_imports_user_export_uq").on(table.userId, table.exportId),
+}));
+
 export const userSettings = mysqlTable("user_settings", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().unique().references(() => users.id),

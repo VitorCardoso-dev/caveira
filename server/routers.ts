@@ -1,8 +1,10 @@
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
+import { and, desc, eq, lt } from "drizzle-orm";
 import { z } from "zod";
 import {
   auditLogs,
+  backupImports,
   focusSessions,
   goals,
   goalSources,
@@ -29,6 +31,8 @@ import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { asDate, assertBackupRelationships, backupPayloadSchema, optionalNumber, optionalString, remapPointReference, requiredNumber, requiredString, rowId } from "./backup";
 import { rewardCostPoints } from "./rewards";
+import { calculateActivityTransition, calculateWalletBalance, summarizeLedgerPeriod } from "./points-ledger";
+import { getReportWindows, isWithinReportPeriod } from "./reporting";
 
 const daySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida");
 const idSchema = z.number().int().positive();
@@ -109,7 +113,8 @@ async function recordActivityOutcomeInTransaction(tx: DbTransaction, input: Acti
   const current = existing[0];
   const currentPoints = current ? (current.status === "completed" ? current.basePoints : missedPoints(current.basePoints, current.isCorrosive)) : 0;
   const targetPoints = input.outcome === "completed" ? input.basePoints : missedPoints(input.basePoints, input.isCorrosive);
-  if (current && current.status === input.outcome) return { created: false, transactionId: null };
+  const delta = calculateActivityTransition(current?.status ?? null, currentPoints, input.outcome, targetPoints);
+  if (delta === null) return { created: false, transactionId: null };
   const nextVersion = (current?.version ?? 0) + 1;
   let activityId = current?.id;
   if (current) {
@@ -118,7 +123,6 @@ async function recordActivityOutcomeInTransaction(tx: DbTransaction, input: Acti
     const inserted = await tx.insert(pointActivities).values({ userId: input.userId, sourceType: input.sourceType, sourceId: input.sourceId, occurrenceDate: day, category: input.category, basePoints: input.basePoints, isCorrosive: input.isCorrosive, status: input.outcome, version: nextVersion });
     activityId = Number(inserted[0].insertId);
   }
-  const delta = targetPoints - currentPoints;
   const movementType = !current ? (input.outcome === "completed" ? "earned" : input.isCorrosive ? "corrosive_missed" : "missed") : "adjustment";
   const reason = current ? `Ajuste de ${input.sourceType === "habit" ? "hábito" : "tarefa"}` : input.outcome === "completed" ? `${input.sourceType === "habit" ? "Hábito" : "Tarefa"} cumprido` : `${input.sourceType === "habit" ? "Hábito" : "Tarefa"} não cumprido`;
   const key = `${input.sourceType}:${input.sourceId}:${input.occurrenceDate}:v${nextVersion}`;
@@ -303,6 +307,15 @@ export const appRouter = router({
   }),
 
   points: router({
+    history: protectedProcedure.input(z.object({ cursor: idSchema.optional(), limit: z.number().int().min(1).max(100).default(50) })).query(async ({ ctx, input }) => {
+      const db = await requireDb();
+      const filters = [eq(pointTransactions.userId, ctx.user.id)];
+      if (input.cursor) filters.push(lt(pointTransactions.id, input.cursor));
+      const rows = await db.select().from(pointTransactions).where(and(...filters)).orderBy(desc(pointTransactions.id)).limit(input.limit + 1);
+      const hasMore = rows.length > input.limit;
+      const items = hasMore ? rows.slice(0, input.limit) : rows;
+      return { items, nextCursor: hasMore ? items[items.length - 1]?.id ?? null : null };
+    }),
     weekly: protectedProcedure.input(z.object({ today: daySchema })).query(async ({ ctx, input }) => {
       const db = await requireDb();
       const start = weekStartKey(input.today);
@@ -344,16 +357,15 @@ export const appRouter = router({
       const goalEarned = goalRows.filter(goal => goal.status === "completed" && dateKey(goal.updatedAt) >= start && dateKey(goal.updatedAt) <= input.today).length * POINTS.goalDone;
       const focusEarned = Math.min(5, Math.floor(focusRows.filter(session => dateKey(session.createdAt) >= start && dateKey(session.createdAt) <= input.today).reduce((sum, session) => sum + session.durationMinutes, 0) / 25)) * POINTS.focusBlock;
       const newLedgerRows = spendingRows.filter(row => row.movementType !== "legacy" && row.occurrenceDate && dateKey(row.occurrenceDate) >= start && dateKey(row.occurrenceDate) <= input.today);
-      const newLedgerEarned = newLedgerRows.reduce((sum, row) => sum + Math.max(0, row.points), 0);
-      const newLedgerLost = newLedgerRows.reduce((sum, row) => sum + Math.min(0, row.points), 0);
-      const earned = Math.max(0, dedupedEarned + goalEarned + focusEarned) + newLedgerEarned;
-      const lost = Math.abs(habitMissed + taskLost + newLedgerLost);
-      const spent = spendingRows.filter(row => row.movementType === "legacy").reduce((sum, row) => sum + Math.max(0, row.points), 0);
-      const net = earned - lost;
-      const walletBalance = net - spent;
+      const ledgerPeriod = summarizeLedgerPeriod(spendingRows, start, input.today);
+      const earned = Math.max(0, dedupedEarned + goalEarned + focusEarned) + ledgerPeriod.earned;
+      const lost = Math.abs(habitMissed + taskLost) + ledgerPeriod.lost;
+      const spent = ledgerPeriod.spent;
+      const net = earned - lost - spent;
+      const walletBalance = calculateWalletBalance(spendingRows);
       const obligations = habitRows.filter(row => row.active && row.frequency === "daily").length * Math.max(0, Math.floor((new Date(`${input.today}T12:00:00Z`).getTime() - new Date(`${start}T12:00:00Z`).getTime()) / 86400000) + 1) + taskRows.filter(task => (task.dueDate && dateKey(task.dueDate) >= start && dateKey(task.dueDate) <= input.today) || task.status === "completed").length;
       const completedObligations = completedHabitDays.size + completedTasks.length;
-      return { start, today: input.today, earned, lost, net, spent, walletBalance, completionRate: obligations ? Math.round((completedObligations / obligations) * 100) : 0, breakdown: { habits: habitDone + habitMissed, tasks: completedTaskPoints + taskLost, goals: goalEarned, focus: focusEarned, overdueTasks: overdueTasks.length, newLedger: newLedgerEarned + newLedgerLost }, rules: { categoryPoints: CATEGORY_POINTS, failureFormula: "falha normal perde metade; falha corrosiva perde o dobro", legacyBoundary: NEW_SCORING_START, deduplication: "cada atividade possui uma chave própria; transições repetidas não duplicam o mesmo estado" } };
+      return { start, today: input.today, earned, lost, net, spent, walletBalance, completionRate: obligations ? Math.round((completedObligations / obligations) * 100) : 0, breakdown: { habits: habitDone + habitMissed, tasks: completedTaskPoints + taskLost, goals: goalEarned, focus: focusEarned, overdueTasks: overdueTasks.length, newLedger: newLedgerRows.reduce((sum, row) => sum + row.points, 0) }, rules: { categoryPoints: CATEGORY_POINTS, failureFormula: "falha normal perde metade; falha corrosiva perde o dobro", legacyBoundary: NEW_SCORING_START, deduplication: "cada atividade possui uma chave própria; transições repetidas não duplicam o mesmo estado" } };
     }),
   }),
 
@@ -837,29 +849,26 @@ export const appRouter = router({
   }),
 
   reports: router({
-    summary: protectedProcedure.query(async ({ ctx }) => {
+    summary: protectedProcedure.input(z.object({ today: daySchema })).query(async ({ ctx, input }) => {
       const db = await requireDb();
-      const [records, habitRows, completionRows, taskRows, goalRows, focusRows] = await Promise.all([
+      const [records, habitRows, completionRows, taskRows, goalRows, focusRows, trainingRows] = await Promise.all([
         db.select().from(moduleRecords).where(eq(moduleRecords.userId, ctx.user.id)).orderBy(desc(moduleRecords.recordDate), desc(moduleRecords.createdAt)),
         db.select().from(habits).where(eq(habits.userId, ctx.user.id)),
         db.select().from(habitCompletions).where(and(eq(habitCompletions.userId, ctx.user.id), eq(habitCompletions.status, "completed"))),
         db.select().from(tasks).where(eq(tasks.userId, ctx.user.id)),
         db.select().from(goals).where(eq(goals.userId, ctx.user.id)),
         db.select().from(focusSessions).where(eq(focusSessions.userId, ctx.user.id)),
+        db.select().from(trainingSessions).where(and(eq(trainingSessions.userId, ctx.user.id), eq(trainingSessions.status, "completed"))),
       ]);
-      const month = new Date().toISOString().slice(0, 7);
-      const monthRecords = records.filter(record => dateKey(record.recordDate ?? record.createdAt).startsWith(month));
+      const windows = getReportWindows(input.today);
+      const month = windows.month;
+      const monthRecords = records.filter(record => isWithinReportPeriod(record.recordDate ?? record.createdAt, windows.monthStart, input.today));
       const finance = monthRecords.filter(record => record.module === "financas");
       const income = finance.filter(record => decodeDetails(record.details).type === "income").reduce((sum, record) => sum + Math.abs(record.amountCents), 0);
       const expenses = finance.filter(record => decodeDetails(record.details).type !== "income").reduce((sum, record) => sum + Math.abs(record.amountCents), 0);
-      const nutrition = records.filter(record => record.module === "alimentacao" && dateKey(record.recordDate ?? record.createdAt) === dateKey(new Date())).reduce((sum, record) => sum + record.numericValue, 0);
+      const nutrition = records.filter(record => record.module === "alimentacao" && dateKey(record.recordDate ?? record.createdAt) === input.today).reduce((sum, record) => sum + record.numericValue, 0);
       const xp = completionRows.length * 10 + taskRows.filter(task => task.status === "completed").length * 25 + goalRows.filter(goal => goal.status === "completed").length * 100 + focusRows.reduce((sum, session) => sum + session.durationMinutes, 0);
-      const chartEnd = new Date();
-      const dailyStats = Array.from({ length: 14 }, (_, index) => {
-        const dayDate = new Date(chartEnd);
-        dayDate.setHours(12, 0, 0, 0);
-        dayDate.setDate(dayDate.getDate() - (13 - index));
-        const day = dayDate.toISOString().slice(0, 10);
+      const dailyStats = windows.dailyDays.map(day => {
         const dayHabits = completionRows.filter(item => dateKey(item.day) === day);
         const dayTasks = taskRows.filter(item => item.status === "completed" && dateKey(item.updatedAt) === day);
         const categories = new Set<string>();
@@ -871,11 +880,12 @@ export const appRouter = router({
         for (const task of dayTasks) {
           if (!categories.has(task.category)) { categories.add(task.category); points += pointsForCategory(task.category); }
         }
-        return { day, points, completedHabits: dayHabits.filter(item => item.status === "completed").length, completedTasks: dayTasks.length, focusMinutes: focusRows.filter(item => dateKey(item.createdAt) === day).reduce((sum, item) => sum + item.durationMinutes, 0) };
+        return { day, points, completedHabits: dayHabits.filter(item => item.status === "completed").length, completedTasks: dayTasks.length, focusMinutes: focusRows.filter(item => dateKey(item.createdAt) === day).reduce((sum, item) => sum + item.durationMinutes, 0), trainingSessions: trainingRows.filter(item => dateKey(item.sessionDate) === day).length };
       });
       return {
         period: month,
-        counts: { habits: habitRows.length, tasks: taskRows.length, completedTasks: taskRows.filter(task => task.status === "completed").length, goals: goalRows.length, focusSessions: focusRows.length, training: records.filter(record => record.module === "treinos").length },
+        periods: { counts: "all_time", focusMinutes: "all_time", finance: month, nutrition: "today", gamification: "all_time", dailyStats: "last_14_days" },
+        counts: { habits: habitRows.length, tasks: taskRows.length, completedTasks: taskRows.filter(task => task.status === "completed").length, goals: goalRows.length, focusSessions: focusRows.length, training: trainingRows.length },
         focusMinutes: focusRows.reduce((sum, session) => sum + session.durationMinutes, 0),
         finance: { income, expenses, balance: income - expenses },
         nutrition: { caloriesToday: nutrition },
@@ -884,7 +894,7 @@ export const appRouter = router({
         records: records.slice(0, 80).map(serializeRecord),
       };
     }),
-    monthly: protectedProcedure.query(async ({ ctx }) => {
+    monthly: protectedProcedure.input(z.object({ today: daySchema })).query(async ({ ctx, input }) => {
       const db = await requireDb();
       const [habitRows, completionRows, taskRows, goalRows, sessions] = await Promise.all([
         db.select().from(habits).where(eq(habits.userId, ctx.user.id)),
@@ -893,22 +903,21 @@ export const appRouter = router({
         db.select().from(goals).where(eq(goals.userId, ctx.user.id)),
         db.select().from(trainingSessions).where(and(eq(trainingSessions.userId, ctx.user.id), eq(trainingSessions.status, "completed"))),
       ]);
-      const now = new Date();
-      const month = now.toISOString().slice(0, 7);
-      const currentDay = now.getDate();
-      const inMonth = (value: Date | string | null) => Boolean(value && dateKey(value).startsWith(month));
+      const windows = getReportWindows(input.today);
+      const month = windows.month;
+      const currentDay = windows.monthDays;
+      const inMonth = (value: Date | string | null) => isWithinReportPeriod(value, windows.monthStart, input.today);
       const completedTasks = taskRows.filter(task => task.status === "completed" && inMonth(task.updatedAt));
+      const monthTasksCreated = taskRows.filter(task => inMonth(task.createdAt));
+      const completedMonthTasks = monthTasksCreated.filter(task => task.status === "completed" && inMonth(task.updatedAt));
       const monthCompletions = completionRows.filter(item => inMonth(item.day));
       const monthSessions = sessions.filter(item => inMonth(item.sessionDate));
-      const monthTasksCreated = taskRows.filter(task => inMonth(task.createdAt));
-      const monthGoals = goalRows.filter(goal => inMonth(goal.createdAt) || inMonth(goal.updatedAt));
+      const monthGoals = goalRows.filter(goal => inMonth(goal.createdAt) || (goal.status === "completed" && inMonth(goal.updatedAt)));
       const activeDays = new Set<string>();
       completedTasks.forEach(task => activeDays.add(dateKey(task.updatedAt)));
       monthCompletions.forEach(item => activeDays.add(dateKey(item.day)));
       monthSessions.forEach(item => activeDays.add(dateKey(item.sessionDate)));
-      const daily = Array.from({ length: currentDay }, (_, index) => {
-        const dayDate = new Date(now.getFullYear(), now.getMonth(), index + 1, 12);
-        const day = dayDate.toISOString().slice(0, 10);
+      const daily = windows.monthToDateDays.map(day => {
         const categories = new Set<string>();
         let points = 0;
         for (const item of monthCompletions.filter(row => dateKey(row.day) === day)) {
@@ -931,19 +940,27 @@ export const appRouter = router({
         areaMap.set(category, current);
       };
       for (const task of monthTasksCreated) addArea(task.category, task.status === "completed" && inMonth(task.updatedAt) ? 1 : 0, 1);
-      for (const item of monthCompletions) addArea(habitRows.find(habit => habit.id === item.habitId)?.category ?? "Hábitos", 1, 1);
-      if (monthSessions.length) addArea("Físico", monthSessions.length, monthSessions.length);
+      const monthDays = Number(input.today.slice(8, 10));
+      for (const habit of habitRows.filter(row => row.frequency === "daily")) {
+        const createdDay = dateKey(habit.createdAt);
+        const firstDay = createdDay.startsWith(month) ? Number(createdDay.slice(8, 10)) : 1;
+        const totalDays = Math.max(0, monthDays - firstDay + 1);
+        if (!totalDays) continue;
+        const completed = new Set(monthCompletions.filter(item => item.habitId === habit.id).map(item => dateKey(item.day))).size;
+        addArea(habit.category ?? "Hábitos", Math.min(totalDays, completed), totalDays);
+      }
       const areas = [...areaMap.entries()].map(([category, value]) => { const rate = value.total ? Math.round((value.completed / value.total) * 100) : 0; const rating = rate >= 85 ? "Excelente" : rate >= 70 ? "Bom" : rate >= 50 ? "Regular" : "Precisa melhorar"; return { category, ...value, rate, rating }; }).sort((a, b) => b.rate - a.rate || b.completed - a.completed);
-      const hasData = activeDays.size > 0 || monthTasksCreated.length > 0 || monthGoals.length > 0;
+      const hasData = activeDays.size > 0 || monthTasksCreated.length > 0 || monthGoals.length > 0 || monthSessions.length > 0;
       const bestArea = areas[0] ?? null;
       const attentionArea = areas.length > 1 ? areas[areas.length - 1] : null;
-      const scoreMetrics = [currentDay ? Math.round((activeDays.size / currentDay) * 100) : null, monthTasksCreated.length ? Math.round((completedTasks.length / monthTasksCreated.length) * 100) : null, areas.length ? Math.round(areas.reduce((sum, area) => sum + area.rate, 0) / areas.length) : null].filter((value): value is number => value !== null);
+      const scoreMetrics = [currentDay ? Math.round((activeDays.size / currentDay) * 100) : null, monthTasksCreated.length ? Math.round((completedMonthTasks.length / monthTasksCreated.length) * 100) : null, areas.length ? Math.round(areas.reduce((sum, area) => sum + area.rate, 0) / areas.length) : null].filter((value): value is number => value !== null);
       const scoreValue = scoreMetrics.length ? Math.max(0, Math.min(100, Math.round(scoreMetrics.reduce((sum, value) => sum + value, 0) / scoreMetrics.length))) : null;
       const scoreLabel = scoreValue === null ? "Dados insuficientes" : scoreValue >= 85 ? "Excelente" : scoreValue >= 70 ? "Bom" : scoreValue >= 50 ? "Regular" : "Precisa melhorar";
       return {
         month,
+        period: { start: `${month}-01`, end: input.today, type: "month_to_date" },
         hasData,
-        summary: { consistency: currentDay ? Math.round((activeDays.size / currentDay) * 100) : 0, activeDays: activeDays.size, completedTasks: completedTasks.length, accompaniedGoals: monthGoals.length },
+        summary: { consistency: currentDay ? Math.round((activeDays.size / currentDay) * 100) : 0, activeDays: activeDays.size, completedTasks: completedTasks.length, tasksCreated: monthTasksCreated.length, tasksCompletedFromCreated: completedMonthTasks.length, trainingSessions: monthSessions.length, accompaniedGoals: monthGoals.length },
         score: scoreValue === null ? null : { value: scoreValue, label: scoreLabel, criteria: "Média de consistência, conclusão de tarefas e desempenho médio das áreas registradas." },
         daily,
         areas,
@@ -982,28 +999,30 @@ export const appRouter = router({
     export: protectedProcedure.query(async ({ ctx }) => {
       const db = await requireDb();
       const userId = ctx.user.id;
-      const [recordRows, habitRows, completionRows, taskRows, goalRows, goalSourceRows, focusRows, activityRows, pointRows, auditRows, rewardRows, redemptionRows, settingsRows, libraryRows, planRows, exerciseRows, sessionRows, setRows] = await Promise.all([
-        db.select().from(moduleRecords).where(eq(moduleRecords.userId, userId)),
-        db.select().from(habits).where(eq(habits.userId, userId)),
-        db.select().from(habitCompletions).where(eq(habitCompletions.userId, userId)),
-        db.select().from(tasks).where(eq(tasks.userId, userId)),
-        db.select().from(goals).where(eq(goals.userId, userId)),
-        db.select().from(goalSources).where(eq(goalSources.userId, userId)),
-        db.select().from(focusSessions).where(eq(focusSessions.userId, userId)),
-        db.select().from(pointActivities).where(eq(pointActivities.userId, userId)),
-        db.select().from(pointTransactions).where(eq(pointTransactions.userId, userId)),
-        db.select().from(auditLogs).where(eq(auditLogs.userId, userId)),
-        db.select().from(rewards).where(eq(rewards.userId, userId)),
-        db.select().from(rewardRedemptions).where(eq(rewardRedemptions.userId, userId)),
-        db.select().from(userSettings).where(eq(userSettings.userId, userId)).limit(1),
-        db.select().from(exerciseLibrary).where(eq(exerciseLibrary.userId, userId)),
-        db.select().from(trainingPlans).where(eq(trainingPlans.userId, userId)),
-        db.select().from(trainingExercises).where(eq(trainingExercises.userId, userId)),
-        db.select().from(trainingSessions).where(eq(trainingSessions.userId, userId)),
-        db.select().from(trainingSets).where(eq(trainingSets.userId, userId)),
+      return db.transaction(async tx => {
+        const [recordRows, habitRows, completionRows, taskRows, goalRows, goalSourceRows, focusRows, activityRows, pointRows, auditRows, rewardRows, redemptionRows, settingsRows, libraryRows, planRows, exerciseRows, sessionRows, setRows] = await Promise.all([
+        tx.select().from(moduleRecords).where(eq(moduleRecords.userId, userId)),
+        tx.select().from(habits).where(eq(habits.userId, userId)),
+        tx.select().from(habitCompletions).where(eq(habitCompletions.userId, userId)),
+        tx.select().from(tasks).where(eq(tasks.userId, userId)),
+        tx.select().from(goals).where(eq(goals.userId, userId)),
+        tx.select().from(goalSources).where(eq(goalSources.userId, userId)),
+        tx.select().from(focusSessions).where(eq(focusSessions.userId, userId)),
+        tx.select().from(pointActivities).where(eq(pointActivities.userId, userId)),
+        tx.select().from(pointTransactions).where(eq(pointTransactions.userId, userId)),
+        tx.select().from(auditLogs).where(eq(auditLogs.userId, userId)),
+        tx.select().from(rewards).where(eq(rewards.userId, userId)),
+        tx.select().from(rewardRedemptions).where(eq(rewardRedemptions.userId, userId)),
+        tx.select().from(userSettings).where(eq(userSettings.userId, userId)).limit(1),
+        tx.select().from(exerciseLibrary).where(eq(exerciseLibrary.userId, userId)),
+        tx.select().from(trainingPlans).where(eq(trainingPlans.userId, userId)),
+        tx.select().from(trainingExercises).where(eq(trainingExercises.userId, userId)),
+        tx.select().from(trainingSessions).where(eq(trainingSessions.userId, userId)),
+        tx.select().from(trainingSets).where(eq(trainingSets.userId, userId)),
       ]);
-      return {
-        version: 2,
+        return {
+        version: 3,
+        exportId: randomUUID(),
         exportedAt: new Date().toISOString(),
         records: recordRows.map(serializeRecord),
         habits: habitRows,
@@ -1023,7 +1042,8 @@ export const appRouter = router({
         trainingExercises: exerciseRows,
         trainingSessions: sessionRows,
         trainingSets: setRows,
-      };
+        };
+      });
     }),
     importRecords: protectedProcedure.input(backupPayloadSchema).mutation(async ({ ctx, input }) => {
       const payload = backupPayloadSchema.parse(input);
@@ -1043,7 +1063,12 @@ export const appRouter = router({
       const count = { records: 0, habits: 0, habitCompletions: 0, tasks: 0, goals: 0, goalSources: 0, focusSessions: 0, pointActivities: 0, pointTransactions: 0, auditLogs: 0, rewards: 0, rewardRedemptions: 0, settings: 0, exerciseLibrary: 0, trainingPlans: 0, trainingExercises: 0, trainingSessions: 0, trainingSets: 0 };
       const maps = { habits: new Map<number, number>(), goals: new Map<number, number>(), library: new Map<number, number>(), plans: new Map<number, number>(), exercises: new Map<number, number>(), sessions: new Map<number, number>(), tasks: new Map<number, number>(), records: new Map<number, number>(), pointActivities: new Map<number, number>(), pointTransactions: new Map<number, number>(), rewards: new Map<number, number>() };
 
-      await db.transaction(async tx => {
+      const importResult = await db.transaction(async tx => {
+        if (payload.exportId) {
+          const previous = await tx.select({ id: backupImports.id }).from(backupImports).where(and(eq(backupImports.userId, userId), eq(backupImports.exportId, payload.exportId))).limit(1);
+          if (previous[0]) return { duplicate: true } as const;
+          await tx.insert(backupImports).values({ userId, exportId: payload.exportId });
+        }
         for (const row of payload.records) {
           const oldId = rowId(row, "Registro");
           const result = await tx.insert(moduleRecords).values({ userId, module: text(row, "module", "Registro"), title: requiredString(row, "title", "Registro"), subtitle: optionalString(row, "subtitle"), status: text(row, "status", "Registro", "active"), numericValue: number(row, "numericValue"), amountCents: number(row, "amountCents"), recordDate: date(row, "recordDate", "Registro", true), details: details(row.details) });
@@ -1131,10 +1156,23 @@ export const appRouter = router({
         }
         for (const row of payload.pointTransactions) {
           const reason = requiredString(row, "reason", "Pontuação");
+          const sourceType = optionalString(row, "sourceType");
+          const oldSourceId = optionalNumber(row, "sourceId");
+          const sourceId = oldSourceId === null ? null
+            : sourceType === "habit" ? maps.habits.get(oldSourceId) ?? null
+            : sourceType === "task" ? maps.tasks.get(oldSourceId) ?? null
+            : sourceType === "reward" ? maps.rewards.get(oldSourceId) ?? maps.records.get(oldSourceId) ?? null
+            : oldSourceId;
           const oldRef = optionalNumber(row, "referenceId");
-          const referenceId = remapPointReference(reason, oldRef, maps);
+          const referenceId = sourceType === "reward" && oldRef !== null
+            ? maps.rewards.get(oldRef) ?? maps.records.get(oldRef) ?? null
+            : sourceType === "habit" && oldRef !== null
+              ? maps.habits.get(oldRef) ?? null
+              : sourceType === "task" && oldRef !== null
+                ? maps.tasks.get(oldRef) ?? null
+                : remapPointReference(reason, oldRef, maps);
           const oldActivityId = optionalNumber(row, "activityId");
-          const inserted = await tx.insert(pointTransactions).values({ userId, points: requiredNumber(row, "points", "Pontuação"), reason, referenceId, activityId: oldActivityId === null ? null : maps.pointActivities.get(oldActivityId) ?? null, category: text(row, "category", "Pontuação", "Outros"), movementType: enumValue(row, "movementType", ["legacy", "earned", "missed", "corrosive_missed", "redemption", "adjustment"] as const, "legacy"), sourceType: optionalString(row, "sourceType"), sourceId: optionalNumber(row, "sourceId"), occurrenceDate: date(row, "occurrenceDate", "Pontuação", true), idempotencyKey: optionalString(row, "idempotencyKey") });
+          const inserted = await tx.insert(pointTransactions).values({ userId, points: requiredNumber(row, "points", "Pontuação"), reason, referenceId, activityId: oldActivityId === null ? null : maps.pointActivities.get(oldActivityId) ?? null, category: text(row, "category", "Pontuação", "Outros"), movementType: enumValue(row, "movementType", ["legacy", "earned", "missed", "corrosive_missed", "redemption", "adjustment"] as const, "legacy"), sourceType, sourceId, occurrenceDate: date(row, "occurrenceDate", "Pontuação", true), idempotencyKey: optionalString(row, "idempotencyKey") });
           maps.pointTransactions.set(rowId(row, "Pontuação"), Number(inserted[0].insertId)); count.pointTransactions += 1;
         }
         for (const row of payload.rewardRedemptions) {
@@ -1156,8 +1194,10 @@ export const appRouter = router({
             await tx.insert(userSettings).values({ userId, goals: optionalString(row, "goals"), notifications: bool(row, "notifications", true), preferredFocusMinutes: Math.min(120, Math.max(1, number(row, "preferredFocusMinutes", 25))), preferredBreakMinutes: Math.min(60, Math.max(1, number(row, "preferredBreakMinutes", 5))) }); count.settings = 1;
           }
         }
+        return { duplicate: false } as const;
       });
-      return { success: true, imported: count.records, counts: count, message: "Backup validado e mesclado sem sobrescrever dados existentes." } as const;
+      if (importResult.duplicate) return { success: true, duplicate: true, imported: 0, counts: null, message: "Este backup já foi restaurado nesta conta." } as const;
+      return { success: true, duplicate: false, imported: Object.values(count).reduce((sum, value) => sum + value, 0), counts: count, message: "Backup validado e mesclado sem sobrescrever dados existentes." } as const;
     }),
   }),
 
