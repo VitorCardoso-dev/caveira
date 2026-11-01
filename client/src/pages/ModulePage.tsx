@@ -21,6 +21,7 @@ import {
   Trophy,
   Utensils,
   WalletCards,
+  UserRound,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -119,6 +120,7 @@ const moduleNavigation = [
   { label: "Treinos", href: "/treinos", icon: Dumbbell },
   { label: "Recompensas", href: "/recompensas", icon: Trophy },
   { label: "Relatórios", href: "/relatorios", icon: BarChart3 },
+  { label: "Perfil", href: "/perfil", icon: UserRound },
 ];
 
 function ModuleNavigation({ mobile = false }: { mobile?: boolean }) {
