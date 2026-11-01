@@ -26,7 +26,10 @@ export function calculateLifetimeXp(rows: PointLedgerMovement[]) {
 }
 
 export function sumLedgerPointsForDay(rows: PointLedgerMovement[], day: string) {
-  return rows.reduce((total, row) => dayKey(row.occurrenceDate) === day ? total + row.points : total, 0);
+  return rows.reduce((total, row) => {
+    if (dayKey(row.occurrenceDate) !== day) return total;
+    return total + (row.movementType === "legacy" ? -Math.abs(row.points) : row.points);
+  }, 0);
 }
 
 export function summarizeLedgerPeriod(rows: PointLedgerMovement[], start: string, end: string) {

@@ -30,7 +30,8 @@ describe("carteira e extrato de pontos", () => {
       { movementType: "redemption", points: -3, occurrenceDate: "2026-11-01" },
       { movementType: "earned", points: 50, occurrenceDate: "2026-11-02" },
       { movementType: "legacy", points: 20, occurrenceDate: null },
-    ], "2026-11-01")).toBe(5);
+      { movementType: "legacy", points: 6, occurrenceDate: "2026-11-01" },
+    ], "2026-11-01")).toBe(-1);
   });
 
   it("separa o resumo semanal do saldo total da carteira", () => {

@@ -374,6 +374,7 @@ export const appRouter = router({
     }),
     weekly: protectedProcedure.input(z.object({ today: daySchema })).query(async ({ ctx, input }) => {
       const db = await requireDb();
+      if (input.today > currentDayKey()) throw new TRPCError({ code: "BAD_REQUEST", message: "O placar semanal não aceita uma data futura." });
       const start = weekStartKey(input.today);
       await ensureLegacyOpeningBalance(db, ctx.user.id);
       await reconcileMissedActivities(db, ctx.user.id, input.today);
@@ -587,8 +588,7 @@ export const appRouter = router({
       const db = await requireDb();
       const ownTask = await db.select({ id: tasks.id, dueDate: tasks.dueDate, status: tasks.status, category: tasks.category, isCorrosive: tasks.isCorrosive }).from(tasks).where(and(eq(tasks.id, input.taskId), eq(tasks.userId, ctx.user.id))).limit(1);
       if (!ownTask[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Tarefa não encontrada." });
-      const today = input.today ?? currentDayKey();
-      if (today > currentDayKey()) throw new TRPCError({ code: "BAD_REQUEST", message: "Não é possível concluir uma tarefa em uma data futura." });
+      const today = currentDayKey();
       if (input.completed && ownTask[0].dueDate && dateKey(ownTask[0].dueDate) < today) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "O prazo desta tarefa já terminou e ela foi considerada não concluída." });
       }
@@ -986,7 +986,7 @@ export const appRouter = router({
         current.completed += completed;
         areaMap.set(category, current);
       };
-      for (const task of monthTasksCreated) addArea(task.category, task.status === "completed" && inMonth(task.updatedAt) ? 1 : 0, 1);
+      for (const task of monthTasksCreated) addArea(task.category, task.status === "completed" && task.completedAt && inMonth(task.completedAt) ? 1 : 0, 1);
       const monthDays = Number(input.today.slice(8, 10));
       for (const habit of habitRows.filter(row => row.frequency === "daily")) {
         const createdDay = dateKey(habit.createdAt);

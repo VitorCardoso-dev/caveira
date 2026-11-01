@@ -92,6 +92,7 @@ describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
     await api.tasks.create({ title: "Tarefa para concluir", category: "Estudos", isCorrosive: false, dueDate: null, goalId: null });
     const task = (await db.select().from(tasks).where(eq(tasks.userId, owner.id)).limit(1))[0];
     await expect(api.tasks.toggleComplete({ taskId: task.id, completed: true, today: tomorrow })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(api.points.weekly({ today: tomorrow })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await api.tasks.toggleComplete({ taskId: task.id, completed: true, today });
     const completed = (await db.select().from(tasks).where(eq(tasks.id, task.id)).limit(1))[0];
     expect(completed.completedAt).toBeInstanceOf(Date);
