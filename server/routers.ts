@@ -573,8 +573,9 @@ export const appRouter = router({
     toggleToday: protectedProcedure.input(z.object({ habitId: idSchema, day: daySchema, completed: z.boolean() })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
       if (input.day > currentDayKey()) throw new TRPCError({ code: "BAD_REQUEST", message: "Não é possível registrar um hábito em uma data futura." });
-      const ownHabit = await db.select({ id: habits.id, category: habits.category, isCorrosive: habits.isCorrosive }).from(habits).where(and(eq(habits.id, input.habitId), eq(habits.userId, ctx.user.id))).limit(1);
+      const ownHabit = await db.select({ id: habits.id, category: habits.category, isCorrosive: habits.isCorrosive, frequency: habits.frequency }).from(habits).where(and(eq(habits.id, input.habitId), eq(habits.userId, ctx.user.id))).limit(1);
       if (!ownHabit[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Hábito não encontrado." });
+      if (ownHabit[0].frequency !== "daily") throw new TRPCError({ code: "BAD_REQUEST", message: "A recorrência deste hábito ainda não está disponível para marcação. Recrie-o como diário por enquanto." });
       const day = new Date(`${input.day}T00:00:00.000Z`);
       await db.transaction(async tx => {
         const existing = await tx.select().from(habitCompletions).where(and(eq(habitCompletions.habitId, input.habitId), eq(habitCompletions.userId, ctx.user.id), eq(habitCompletions.day, day))).limit(1);
