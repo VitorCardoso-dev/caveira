@@ -149,10 +149,17 @@ async function recordGoalCompletionInTransaction(tx: DbTransaction, userId: numb
 
 async function recordFocusBlocksInTransaction(tx: DbTransaction, userId: number, sessionId: number, durationMinutes: number, day: string) {
   const start = weekStartKey(day);
-  const existing = await tx.select().from(pointTransactions).where(eq(pointTransactions.userId, userId));
-  const used = existing
+  const [existing, legacySessions] = await Promise.all([
+    tx.select().from(pointTransactions).where(eq(pointTransactions.userId, userId)),
+    tx.select().from(focusSessions).where(eq(focusSessions.userId, userId)),
+  ]);
+  const legacyUsed = Math.min(5, Math.floor(legacySessions
+    .filter(session => dateKey(session.createdAt) >= start && dateKey(session.createdAt) <= day && dateKey(session.createdAt) < NEW_SCORING_START)
+    .reduce((sum, session) => sum + session.durationMinutes, 0) / 25));
+  const ledgerUsed = existing
     .filter(row => row.sourceType === "focus" && row.occurrenceDate && dateKey(row.occurrenceDate) >= start && dateKey(row.occurrenceDate) <= day)
     .reduce((sum, row) => sum + Math.max(0, row.points), 0);
+  const used = Math.min(5, legacyUsed + ledgerUsed);
   const blocks = Math.min(Math.max(0, 5 - used), Math.floor(durationMinutes / 25));
   for (let block = 1; block <= blocks; block += 1) {
     const idempotencyKey = `focus:${sessionId}:block:${block}`;
