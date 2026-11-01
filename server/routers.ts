@@ -842,13 +842,14 @@ export const appRouter = router({
   reports: router({
     summary: protectedProcedure.input(z.object({ today: daySchema })).query(async ({ ctx, input }) => {
       const db = await requireDb();
-      const [records, habitRows, completionRows, taskRows, goalRows, focusRows] = await Promise.all([
+      const [records, habitRows, completionRows, taskRows, goalRows, focusRows, trainingRows] = await Promise.all([
         db.select().from(moduleRecords).where(eq(moduleRecords.userId, ctx.user.id)).orderBy(desc(moduleRecords.recordDate), desc(moduleRecords.createdAt)),
         db.select().from(habits).where(eq(habits.userId, ctx.user.id)),
         db.select().from(habitCompletions).where(and(eq(habitCompletions.userId, ctx.user.id), eq(habitCompletions.status, "completed"))),
         db.select().from(tasks).where(eq(tasks.userId, ctx.user.id)),
         db.select().from(goals).where(eq(goals.userId, ctx.user.id)),
         db.select().from(focusSessions).where(eq(focusSessions.userId, ctx.user.id)),
+        db.select().from(trainingSessions).where(and(eq(trainingSessions.userId, ctx.user.id), eq(trainingSessions.status, "completed"))),
       ]);
       const windows = getReportWindows(input.today);
       const month = windows.month;
@@ -870,12 +871,12 @@ export const appRouter = router({
         for (const task of dayTasks) {
           if (!categories.has(task.category)) { categories.add(task.category); points += pointsForCategory(task.category); }
         }
-        return { day, points, completedHabits: dayHabits.filter(item => item.status === "completed").length, completedTasks: dayTasks.length, focusMinutes: focusRows.filter(item => dateKey(item.createdAt) === day).reduce((sum, item) => sum + item.durationMinutes, 0) };
+        return { day, points, completedHabits: dayHabits.filter(item => item.status === "completed").length, completedTasks: dayTasks.length, focusMinutes: focusRows.filter(item => dateKey(item.createdAt) === day).reduce((sum, item) => sum + item.durationMinutes, 0), trainingSessions: trainingRows.filter(item => dateKey(item.sessionDate) === day).length };
       });
       return {
         period: month,
         periods: { counts: "all_time", focusMinutes: "all_time", finance: month, nutrition: "today", gamification: "all_time", dailyStats: "last_14_days" },
-        counts: { habits: habitRows.length, tasks: taskRows.length, completedTasks: taskRows.filter(task => task.status === "completed").length, goals: goalRows.length, focusSessions: focusRows.length, training: records.filter(record => record.module === "treinos").length },
+        counts: { habits: habitRows.length, tasks: taskRows.length, completedTasks: taskRows.filter(task => task.status === "completed").length, goals: goalRows.length, focusSessions: focusRows.length, training: trainingRows.length },
         focusMinutes: focusRows.reduce((sum, session) => sum + session.durationMinutes, 0),
         finance: { income, expenses, balance: income - expenses },
         nutrition: { caloriesToday: nutrition },
