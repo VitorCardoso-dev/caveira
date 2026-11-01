@@ -1,5 +1,5 @@
-const CACHE_NAME = "caveira-shell-v2";
-const SHELL = ["/", "/manifest.webmanifest", "/caveira-photo-logo.png"];
+const CACHE_NAME = "methamorphis-shell-v3";
+const SHELL = ["/", "/manifest.webmanifest", "/methamorphis-mark.svg"];
 
 self.addEventListener("install", event => {
   event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting()));

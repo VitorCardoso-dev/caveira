@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { ArrowLeft, BarChart3, Check, Clock3, Dumbbell, Flame, Library, Play, Plus, Save, Timer, Trash2, Trophy } from "lucide-react";
-import { Link } from "wouter";
+import { Activity, BarChart3, Check, Clock3, Dumbbell, Flame, Home, Library, ListTodo, Play, Plus, Save, Target, Timer, Trash2, Trophy, UserRound } from "lucide-react";
+import { Link, useLocation } from "wouter";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
@@ -11,10 +11,34 @@ const muscleGroups = ["Peito", "Costas", "Pernas", "Ombros", "Braços", "Core", 
 const exerciseVisuals: Record<string, string> = { Peito: "/manus-storage/async-images/npWmnFs6sa9GgjKDCfbq3w/image-1.webp", Costas: "/manus-storage/async-images/npWmnFs6sa9GgjKDCfbq3w/image-2.webp", Pernas: "/manus-storage/async-images/npWmnFs6sa9GgjKDCfbq3w/image-3.webp", Core: "/manus-storage/async-images/npWmnFs6sa9GgjKDCfbq3w/image-4.webp", Cardio: "/manus-storage/async-images/npWmnFs6sa9GgjKDCfbq3w/image-5.webp" };
 const exerciseTone: Record<string, string> = { Peito: "red", Costas: "green", Pernas: "warm", Core: "purple", Cardio: "red" };
 
-function Shell({ children }: { children: React.ReactNode }) {
-  return <div className="min-h-screen bg-caveira-bg text-caveira-text"><div className="mx-auto max-w-6xl px-5 py-8 sm:px-8 lg:py-12"><div className="mb-7 flex items-center justify-between"><Link href="/" className="inline-flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-caveira-muted hover:text-caveira-text"><ArrowLeft size={15} /> voltar ao painel</Link><Link href="/perfil" className="flex h-10 w-10 overflow-hidden rounded-xl border border-caveira-border"><img src="/caveira-photo-logo.png" alt="Perfil" className="h-full w-full object-cover" /></Link></div><div className="mb-8 flex items-start gap-4"><div className="brand-mark overflow-hidden p-0"><img src="/caveira-photo-logo.png" alt="CAVEIRA" className="h-full w-full object-cover" /></div><div><p className="eyebrow text-caveira-red">corpo · execução</p><h1 className="mt-2 training-page-title font-display text-3xl font-extrabold tracking-[-0.06em] sm:text-5xl">Treinos</h1><p className="mt-3 max-w-2xl text-sm leading-6 text-caveira-muted">Planeje a ficha. Registre o real. Acompanhe sua evolução sem ignorar descanso ou recuperação.</p></div></div>{children}</div></div>;
+const trainingNavigation = [
+  { label: "Painel", href: "/", icon: Home },
+  { label: "Hábitos", href: "/habitos", icon: Activity },
+  { label: "Tarefas", href: "/tarefas", icon: ListTodo },
+  { label: "Metas", href: "/metas", icon: Target },
+  { label: "Treinos", href: "/treinos", icon: Dumbbell },
+  { label: "Recompensas", href: "/recompensas", icon: Trophy },
+  { label: "Relatórios", href: "/relatorios", icon: BarChart3 },
+  { label: "Perfil", href: "/perfil", icon: UserRound },
+];
+
+function TrainingNavigation({ mobile = false }: { mobile?: boolean }) {
+  const [location] = useLocation();
+  return <nav aria-label="Navegação principal" className={mobile ? "flex items-center justify-around" : "space-y-1"}>
+    {trainingNavigation.map(item => { const Icon = item.icon; const active = location === item.href; return <Link key={item.href} href={item.href} className={mobile ? `mobile-nav-item ${active ? "active" : ""}` : `side-nav-item ${active ? "active" : ""}`}><Icon size={mobile ? 16 : 18} /><span>{item.label}</span></Link>; })}
+  </nav>;
 }
 
+function Shell({ children }: { children: React.ReactNode }) {
+  return <div className="page-enter min-h-screen bg-caveira-bg text-caveira-text">
+    <aside className="fixed inset-y-0 left-0 z-30 hidden w-[220px] border-r border-caveira-border bg-caveira-bg/95 px-4 py-6 backdrop-blur lg:block"><p className="eyebrow mb-4 px-3">navegação</p><TrainingNavigation /></aside>
+    <main className="mx-auto max-w-6xl px-4 py-5 pb-32 sm:px-8 lg:ml-[220px] lg:py-8 lg:pb-12">
+      <header className="mb-5 border-b border-caveira-border pb-4"><p className="eyebrow text-caveira-green">corpo · execução</p><h1 className="training-page-title mt-2 font-display text-3xl font-extrabold tracking-[-0.06em] text-caveira-green sm:text-4xl">Treinos</h1><p className="mt-2 max-w-2xl text-sm leading-6 text-caveira-blue">Planeje a ficha. Registre o real. Acompanhe sua evolução sem ignorar descanso ou recuperação.</p></header>
+      {children}
+    </main>
+    <div className="mobile-bottom-nav fixed inset-x-3 bottom-3 z-40 rounded-2xl border border-caveira-border bg-caveira-panel/95 p-2 shadow-2xl backdrop-blur lg:hidden"><TrainingNavigation mobile /></div>
+  </div>;
+}
 function Metric({ label, value, detail, icon: Icon }: { label: string; value: string | number; detail: string; icon: typeof Flame }) {
   return <div className="metric-card"><div className="mb-3 flex items-center justify-between"><p className="metric-label">{label}</p><Icon size={16} className="text-caveira-red" /></div><p className="metric-value">{value}</p><p className="metric-detail">{detail}</p></div>;
 }

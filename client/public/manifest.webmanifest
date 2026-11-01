@@ -1,6 +1,6 @@
 {
-  "name": "CAVEIRA — Evolução Integral",
-  "short_name": "CAVEIRA",
+  "name": "Methamorphis — Evolução Integral",
+  "short_name": "Methamorphis",
   "description": "Painel privado de disciplina, produtividade e evolução pessoal.",
   "start_url": "/",
   "display": "standalone",
@@ -8,6 +8,6 @@
   "theme_color": "#0b0b0d",
   "lang": "pt-BR",
   "icons": [
-    { "src": "/caveira-photo-logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "/methamorphis-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]
 }
