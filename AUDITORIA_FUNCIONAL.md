@@ -33,14 +33,11 @@ A validação de interação autenticada não foi simulada nesta rodada: não fo
 
 ## Atualização de estabilização — 2026-11-01 (PR #6)
 
-A rodada de estabilização foi executada sobre a `main` após a PR #5. O checkpoint de código desta rodada está na PR [#6](https://github.com/VitorCardoso-dev/caveira/pull/6).
+A rodada de estabilização foi executada sobre a `main` após a PR #5. O checkpoint de código desta rodada está na PR [#6](https://github.com/VitorCardoso-dev/caveira/pull/6). O módulo Pomodoro/Foco foi retirado do escopo desta rodada porque não faz parte da navegação atual do produto.
 
 ### Correções desta rodada
 
-- Pontos de metas concluídas e blocos de foco passaram a ser gravados no ledger, evitando que o placar semanal conte pontos que não aparecem no XP e nos gráficos.
-- O limite semanal de foco é preservado durante a transição entre a pontuação legada e o ledger novo; chaves únicas protegem os blocos contra duplicação.
 - Editar detalhes de uma meta sem enviar status preserva o status atual. O progresso manual conclui a meta pelo alvo configurado, não por um valor fixo.
-- O cronômetro acumula somente o tempo ativo entre pausas e retomadas; o servidor valida a coerência entre duração, início e fim.
 - O editor de metas não permite salvar enquanto as fontes persistidas estão carregando ou se a consulta falhou.
 - Os totais de receitas e despesas do módulo financeiro usam o mês corrente, no fuso de São Paulo.
 - Frequências semanal e personalizada foram desativadas temporariamente na criação e rejeitadas pelo servidor: o schema ainda não persiste dias/agenda suficientes para aplicar essas regras com segurança. Hábitos legados com essas frequências não recebem pontuação arbitrária; devem ser recriados como diários até a implementação da agenda.
