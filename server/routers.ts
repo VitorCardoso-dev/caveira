@@ -889,7 +889,7 @@ export const appRouter = router({
       });
       return {
         period: month,
-        periods: { counts: "all_time", focusMinutes: "all_time", finance: month, nutrition: "today", gamification: "all_time", dailyStats: "last_14_days" },
+        periods: { counts: { type: "all_time" }, focusMinutes: { type: "all_time" }, finance: { type: "month_to_date", start: windows.monthStart, end: input.today }, nutrition: { type: "today", date: input.today }, gamification: { type: "all_time" }, dailyStats: { type: "rolling_days", days: 14, start: windows.dailyDays[0], end: input.today } },
         counts: { habits: habitRows.length, tasks: taskRows.length, completedTasks: taskRows.filter(task => task.status === "completed").length, goals: goalRows.length, focusSessions: focusRows.length, training: trainingRows.length },
         focusMinutes: focusRows.reduce((sum, session) => sum + session.durationMinutes, 0),
         finance: { income, expenses, balance: income - expenses },
