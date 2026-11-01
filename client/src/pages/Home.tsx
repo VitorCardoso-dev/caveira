@@ -155,7 +155,7 @@ export default function Home() {
   const today = useMemo(localDayKey, []);
   const date = useMemo(longDate, []);
   const snapshotQuery = trpc.dashboard.snapshot.useQuery({ today }, { enabled: isAuthenticated, refetchOnWindowFocus: false });
-  const reportQuery = trpc.reports.summary.useQuery(undefined, { enabled: isAuthenticated, refetchOnWindowFocus: false });
+  const reportQuery = trpc.reports.summary.useQuery({ today }, { enabled: isAuthenticated, refetchOnWindowFocus: false });
   const pointsQuery = trpc.points.weekly.useQuery({ today }, { enabled: isAuthenticated, refetchOnWindowFocus: false });
   const toggleHabit = trpc.habits.toggleToday.useMutation({ onSuccess: () => { snapshotQuery.refetch(); toast.success("Hábito concluído", { description: "Sua consistência foi atualizada." }); } });
   const toggleTask = trpc.tasks.toggleComplete.useMutation({ onSuccess: () => { snapshotQuery.refetch(); toast.success("Tarefa cumprida", { description: "Mais uma ação concluída no seu dia." }); }, onError: error => toast.error("Não foi possível concluir a tarefa", { description: error.message }) });
