@@ -31,7 +31,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { asDate, assertBackupRelationships, backupPayloadSchema, optionalNumber, optionalString, remapPointReference, requiredNumber, requiredString, rowId } from "./backup";
 import { rewardCostPoints } from "./rewards";
-import { calculateWalletBalance, summarizeLedgerPeriod } from "./points-ledger";
+import { calculateActivityTransition, calculateWalletBalance, summarizeLedgerPeriod } from "./points-ledger";
 import { getReportWindows } from "./reporting";
 
 const daySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida");
@@ -113,7 +113,8 @@ async function recordActivityOutcomeInTransaction(tx: DbTransaction, input: Acti
   const current = existing[0];
   const currentPoints = current ? (current.status === "completed" ? current.basePoints : missedPoints(current.basePoints, current.isCorrosive)) : 0;
   const targetPoints = input.outcome === "completed" ? input.basePoints : missedPoints(input.basePoints, input.isCorrosive);
-  if (current && current.status === input.outcome) return { created: false, transactionId: null };
+  const delta = calculateActivityTransition(current?.status ?? null, currentPoints, input.outcome, targetPoints);
+  if (delta === null) return { created: false, transactionId: null };
   const nextVersion = (current?.version ?? 0) + 1;
   let activityId = current?.id;
   if (current) {
@@ -122,7 +123,6 @@ async function recordActivityOutcomeInTransaction(tx: DbTransaction, input: Acti
     const inserted = await tx.insert(pointActivities).values({ userId: input.userId, sourceType: input.sourceType, sourceId: input.sourceId, occurrenceDate: day, category: input.category, basePoints: input.basePoints, isCorrosive: input.isCorrosive, status: input.outcome, version: nextVersion });
     activityId = Number(inserted[0].insertId);
   }
-  const delta = targetPoints - currentPoints;
   const movementType = !current ? (input.outcome === "completed" ? "earned" : input.isCorrosive ? "corrosive_missed" : "missed") : "adjustment";
   const reason = current ? `Ajuste de ${input.sourceType === "habit" ? "hábito" : "tarefa"}` : input.outcome === "completed" ? `${input.sourceType === "habit" ? "Hábito" : "Tarefa"} cumprido` : `${input.sourceType === "habit" ? "Hábito" : "Tarefa"} não cumprido`;
   const key = `${input.sourceType}:${input.sourceId}:${input.occurrenceDate}:v${nextVersion}`;
