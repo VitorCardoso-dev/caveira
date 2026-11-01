@@ -6,21 +6,17 @@ import {
   CalendarDays,
   Check,
   CircleDollarSign,
-  Clock3,
   Download,
   Dumbbell,
   FileJson,
   Flag,
   Flame,
   ListTodo,
-  Pause,
   Pencil,
-  Play,
   Plus,
   Save,
   Settings2,
   Target,
-  Timer,
   Trash2,
   Trophy,
   Utensils,
@@ -39,12 +35,11 @@ const todayKey = () => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 };
 
-const icons: Record<string, LucideIcon> = { treinos: Dumbbell, alimentacao: Utensils, financas: CircleDollarSign, recompensas: Trophy, relatorios: BarChart3, configuracoes: Settings2, foco: Timer, habitos: Activity, tarefas: ListTodo, metas: Target };
+const icons: Record<string, LucideIcon> = { treinos: Dumbbell, alimentacao: Utensils, financas: CircleDollarSign, recompensas: Trophy, relatorios: BarChart3, configuracoes: Settings2, habitos: Activity, tarefas: ListTodo, metas: Target };
 const titles: Record<string, { title: string; eyebrow: string; description: string }> = {
   habitos: { title: "Hábitos", eyebrow: "disciplina diária", description: "Registre o que sustenta sua rotina e acompanhe sua sequência sem apagar o histórico." },
   tarefas: { title: "Tarefas", eyebrow: "execução", description: "Transforme prioridades em ações pequenas, datadas e verificáveis." },
   metas: { title: "Metas", eyebrow: "direção", description: "Mantenha seus objetivos mensuráveis e atualize o progresso pelo que foi feito." },
-  foco: { title: "Modo foco", eyebrow: "presença", description: "Um bloco de atenção de cada vez. O tempo concluído entra no histórico." },
   treinos: { title: "Treinos", eyebrow: "corpo", description: "Registre exercícios, cargas, séries e cardio. O CAVEIRA não prescreve carga nem ignora recuperação." },
   alimentacao: { title: "Alimentação", eyebrow: "nutrição", description: "Registre refeições e valores aproximados. Estimativas continuam editáveis." },
   financas: { title: "Finanças", eyebrow: "clareza", description: "Receitas e despesas reais, com saldo do período e impacto visível." },
@@ -263,18 +258,6 @@ function PhaseTwoWorkspace({ module }: { module: "habitos" | "tarefas" | "metas"
 }
 function Empty({ label }: { label: string }) { return <div className="empty-state"><Target size={25} className="text-caveira-muted" /><p className="mt-3 text-sm font-semibold">{label}</p></div>; }
 
-function FocusWorkspace() {
-  const sessions = trpc.focus.sessions.useQuery(undefined, { refetchOnWindowFocus: false });
-  const log = trpc.focus.log.useMutation({ onSuccess: () => sessions.refetch() });
-  const [duration, setDuration] = useState(25 * 60);
-  const [running, setRunning] = useState(false);
-  const [startedAt, setStartedAt] = useState<string | null>(null);
-  useEffect(() => { if (!running) return; const timer = window.setInterval(() => setDuration(value => { if (value <= 1) { window.clearInterval(timer); setRunning(false); return 0; } return value - 1; }), 1000); return () => window.clearInterval(timer); }, [running]);
-  const minutes = String(Math.floor(duration / 60)).padStart(2, "0"); const seconds = String(duration % 60).padStart(2, "0");
-  const start = () => { setStartedAt(new Date().toISOString()); setRunning(true); };
-  const stop = async () => { const endedAt = new Date(); const startDate = startedAt ? new Date(startedAt) : new Date(endedAt.getTime() - 25 * 60000); const elapsed = Math.max(1, Math.round((endedAt.getTime() - startDate.getTime()) / 60000)); try { await log.mutateAsync({ durationMinutes: elapsed, startedAt: startDate.toISOString(), endedAt: endedAt.toISOString() }); toast.success(`${elapsed} min registrados no foco.`); } catch { toast.error("Não foi possível registrar a sessão."); } setRunning(false); setStartedAt(null); setDuration(25 * 60); };
-  return <Shell module="foco"><div className="grid gap-6 lg:grid-cols-[1fr_360px]"><div className="panel-card flex min-h-[470px] flex-col items-center justify-center text-center"><p className="eyebrow text-caveira-red">bloco atual</p><div className="my-8 font-mono text-8xl font-bold tracking-[-0.09em] sm:text-9xl">{minutes}:{seconds}</div><p className="max-w-sm text-sm leading-6 text-caveira-muted">Concentre-se em uma prioridade. Ao parar, o tempo efetivamente transcorrido é salvo no histórico.</p><div className="mt-8 flex flex-wrap justify-center gap-3">{!running ? <button onClick={start} className="button-primary"><Play size={16} /> iniciar</button> : <button onClick={() => setRunning(false)} className="button-secondary"><Pause size={16} /> pausar</button>}{startedAt && <button onClick={stop} className="button-secondary"><Check size={16} /> finalizar e salvar</button>}</div><div className="mt-8 flex items-center gap-2"><button onClick={() => { setRunning(false); setDuration(25 * 60); setStartedAt(null); }} className="text-xs font-bold uppercase tracking-[.14em] text-caveira-muted hover:text-caveira-text">Pomodoro 25</button><span className="text-caveira-border">/</span><button onClick={() => { setRunning(false); setDuration(50 * 60); setStartedAt(null); }} className="text-xs font-bold uppercase tracking-[.14em] text-caveira-muted hover:text-caveira-text">Bloco 50</button></div></div><div className="panel-card"><div className="section-heading"><div><p className="eyebrow">histórico</p><h2 className="section-title">Sessões salvas</h2></div><Clock3 size={18} className="text-caveira-muted" /></div>{sessions.data?.length ? <div className="space-y-2">{sessions.data.map(session => <div key={session.id} className="record-row"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-caveira-panel-soft text-caveira-green"><Timer size={15} /></div><div className="flex-1"><p className="text-sm font-semibold">{session.durationMinutes} minutos</p><p className="mt-1 text-[10px] uppercase tracking-[.14em] text-caveira-muted">{formatDate(session.createdAt)}</p></div></div>)}</div> : <Empty label="Nenhuma sessão concluída." />}</div></div></Shell>;
-}
 
 function ReportsWorkspace() {
   const query = trpc.reports.summary.useQuery({ today: todayKey() }, { refetchOnWindowFocus: false });
@@ -327,7 +310,6 @@ export default function ModulePage() {
   if (loading || !isAuthenticated) return <div className="min-h-screen bg-caveira-bg" />;
   if (!module || !titles[module]) return <div className="min-h-screen bg-caveira-bg p-8 text-caveira-text">Módulo não encontrado.</div>;
   if (module === "habitos" || module === "tarefas" || module === "metas") return <PhaseTwoWorkspace module={module} />;
-  if (module === "foco") return <FocusWorkspace />;
   if (module === "relatorios") return <ReportsWorkspace />;
   if (module === "configuracoes") return <SettingsWorkspace />;
   if (module === "recompensas") return <RewardWorkspace />;
