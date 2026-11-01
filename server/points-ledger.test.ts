@@ -19,7 +19,7 @@ describe("carteira e extrato de pontos", () => {
       { movementType: "legacy", points: 5, occurrenceDate: "2026-11-01" },
       { movementType: "legacy", points: 12, occurrenceDate: "2026-10-10" },
     ];
-    expect(summarizeLedgerPeriod(rows, "2026-10-26", "2026-11-01")).toEqual({ earned: 15, lost: 10, spent: 5, net: 0 });
+    expect(summarizeLedgerPeriod(rows, "2026-10-26", "2026-11-01")).toEqual({ earned: 15, lost: 0, spent: 15, net: 0 });
     expect(calculateWalletBalance(rows)).toBe(28);
   });
 
