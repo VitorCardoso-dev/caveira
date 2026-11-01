@@ -37,4 +37,33 @@ describe("metas automáticas", () => {
     expect(calculateWeightedGoalProgress(goal, source, [{ sourceType: "tasks", sourceId: null, weightPercent: 50 }, { sourceType: "focus", sourceId: null, weightPercent: 50 }], "2026-10-10")).toBe(31);
     expect(calculateWeightedGoalProgress({ ...goal, automationType: "manual" }, empty, [{ sourceType: "manual", sourceId: null, weightPercent: 100 }], "2026-10-10")).toBe(40);
   });
+  it("conta apenas tarefas explicitamente vinculadas à meta na fonte ponderada", () => {
+    const goal = {
+      goalId: 42,
+      automationType: "focus",
+      automationRefId: null,
+      progress: 0,
+      target: 10,
+      automationStartDate: date("2026-10-01"),
+      createdAt: date("2026-10-01"),
+    };
+    const source = {
+      ...empty,
+      tasks: [
+        { status: "completed", updatedAt: date("2026-10-02"), goalId: 42 },
+        { status: "completed", updatedAt: date("2026-10-03"), goalId: 99 },
+        { status: "completed", updatedAt: date("2026-10-04"), goalId: null },
+      ],
+    };
+
+    expect(
+      calculateWeightedGoalProgress(
+        goal,
+        source,
+        [{ sourceType: "tasks", sourceId: null, weightPercent: 100 }],
+        "2026-10-10",
+      ),
+    ).toBe(1);
+  });
+
 });
