@@ -65,7 +65,7 @@ describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
     expect(nonZeroMovements.filter(row => row.movementType === "redemption")).toHaveLength(1);
     const weekly = await ownerCaller.points.weekly({ today });
     expect(weekly.walletBalance).toBe(-20);
-    expect(weekly.earned).toBe(10);
+    expect(weekly.earned).toBe(13);
     expect(weekly.lost).toBe(15);
     expect(weekly.spent).toBe(15);
     expect(weekly.net).toBe(-20);
@@ -122,6 +122,11 @@ describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
       deadline: null, automationType: "manual", automationRefId: null,
     });
 
+    const legacyStartedAt = new Date("2026-10-27T12:00:00.000Z");
+    await db.insert(focusSessions).values({
+      userId: owner.id, durationMinutes: 50, startedAt: legacyStartedAt,
+      endedAt: new Date("2026-10-27T12:50:00.000Z"), createdAt: legacyStartedAt,
+    });
     const endedAt = new Date();
     const startedAt = new Date(endedAt.getTime() - 50 * 60_000);
     await api.focus.log({ durationMinutes: 50, startedAt: startedAt.toISOString(), endedAt: endedAt.toISOString() });
@@ -133,12 +138,12 @@ describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
 
     const ledger = await db.select().from(pointTransactions).where(eq(pointTransactions.userId, owner.id));
     expect(ledger.filter(row => row.sourceType === "goal" && row.points === 8)).toHaveLength(1);
-    expect(ledger.filter(row => row.sourceType === "focus" && row.points === 1)).toHaveLength(2);
+    expect(ledger.filter(row => row.sourceType === "focus" && row.points === 1)).toHaveLength(3);
 
     const weekly = await api.points.weekly({ today });
     expect(weekly.earned).toBe(10);
     expect(weekly.breakdown.goals).toBe(8);
-    expect(weekly.breakdown.focus).toBe(2);
+    expect(weekly.breakdown.focus).toBe(5);
   });
 
   it("migra o saldo legado uma única vez e o soma ao ledger novo", async () => {
