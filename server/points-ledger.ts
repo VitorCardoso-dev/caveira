@@ -22,9 +22,9 @@ export function summarizeLedgerPeriod(rows: PointLedgerMovement[], start: string
     const day = dayKey(row.occurrenceDate);
     return day !== null && day >= start && day <= end;
   });
-  const earned = inPeriod.reduce((sum, row) => sum + (row.movementType === "legacy" ? 0 : Math.max(0, row.points)), 0);
-  const lost = inPeriod.reduce((sum, row) => sum + (row.movementType === "legacy" ? 0 : Math.min(0, row.points)), 0);
-  const spent = inPeriod.reduce((sum, row) => sum + (row.movementType === "legacy" ? Math.abs(row.points) : 0), 0);
+  const earned = inPeriod.reduce((sum, row) => sum + (row.movementType === "legacy" || row.movementType === "redemption" ? 0 : Math.max(0, row.points)), 0);
+  const lost = inPeriod.reduce((sum, row) => sum + (row.movementType === "legacy" || row.movementType === "redemption" ? 0 : Math.min(0, row.points)), 0);
+  const spent = inPeriod.reduce((sum, row) => sum + (row.movementType === "legacy" || row.movementType === "redemption" ? Math.abs(row.points) : 0), 0);
   return { earned, lost: Math.abs(lost), spent, net: earned - Math.abs(lost) - spent };
 }
 
