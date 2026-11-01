@@ -1001,18 +1001,25 @@ export const appRouter = router({
     }),
     monthly: protectedProcedure.input(z.object({ today: daySchema })).query(async ({ ctx, input }) => {
       const db = await requireDb();
-      const [habitRows, completionRows, taskRows, goalRows, sessions, pointRows] = await Promise.all([
+      const [habitRows, completionRows, taskRows, goalRows, sessions, pointRows, moduleRecordRows] = await Promise.all([
         db.select().from(habits).where(eq(habits.userId, ctx.user.id)),
         db.select().from(habitCompletions).where(and(eq(habitCompletions.userId, ctx.user.id), eq(habitCompletions.status, "completed"))),
         db.select().from(tasks).where(eq(tasks.userId, ctx.user.id)),
         db.select().from(goals).where(eq(goals.userId, ctx.user.id)),
         db.select().from(trainingSessions).where(and(eq(trainingSessions.userId, ctx.user.id), eq(trainingSessions.status, "completed"))),
         db.select().from(pointTransactions).where(eq(pointTransactions.userId, ctx.user.id)),
+        db.select().from(moduleRecords).where(and(eq(moduleRecords.userId, ctx.user.id), ne(moduleRecords.module, "recompensas"))),
       ]);
       const windows = getReportWindows(input.today);
       const month = windows.month;
       const currentDay = windows.monthDays;
       const inMonth = (value: Date | string | null) => isWithinReportPeriod(value, windows.monthStart, input.today);
+      const monthRecords = moduleRecordRows.filter(record => inMonth(record.recordDate ?? record.createdAt));
+      const financeRecords = monthRecords.filter(record => record.module === "financas");
+      const nutritionRecords = monthRecords.filter(record => record.module === "alimentacao");
+      const financeIncome = financeRecords.filter(record => decodeDetails(record.details).type === "income").reduce((sum, record) => sum + Math.abs(record.amountCents), 0);
+      const financeExpenses = financeRecords.filter(record => decodeDetails(record.details).type !== "income").reduce((sum, record) => sum + Math.abs(record.amountCents), 0);
+      const nutritionCalories = nutritionRecords.reduce((sum, record) => sum + Math.max(0, record.numericValue), 0);
       const completedTasks = taskRows.filter(task => task.status === "completed" && task.completedAt && inMonth(task.completedAt));
       const monthTasksCreated = taskRows.filter(task => inMonth(task.createdAt));
       const completedMonthTasks = monthTasksCreated.filter(task => task.status === "completed" && task.completedAt && inMonth(task.completedAt));
@@ -1023,6 +1030,7 @@ export const appRouter = router({
       completedTasks.forEach(task => activeDays.add(dateKey(task.completedAt!)));
       monthCompletions.forEach(item => activeDays.add(dateKey(item.day)));
       monthSessions.forEach(item => activeDays.add(dateKey(item.sessionDate)));
+      monthRecords.filter(record => record.module === "financas" || record.module === "alimentacao").forEach(record => activeDays.add(dateKey(record.recordDate ?? record.createdAt)));
       const daily = windows.monthToDateDays.map(day => ({
         day,
         points: sumLedgerPointsForDay(pointRows, day),
@@ -1045,7 +1053,7 @@ export const appRouter = router({
         addArea(habit.category ?? "Hábitos", Math.min(totalDays, completed), totalDays);
       }
       const areas = [...areaMap.entries()].map(([category, value]) => { const rate = value.total ? Math.round((value.completed / value.total) * 100) : 0; const rating = rate >= 85 ? "Excelente" : rate >= 70 ? "Bom" : rate >= 50 ? "Regular" : "Precisa melhorar"; return { category, ...value, rate, rating }; }).sort((a, b) => b.rate - a.rate || b.completed - a.completed);
-      const hasData = activeDays.size > 0 || monthTasksCreated.length > 0 || monthGoals.length > 0 || monthSessions.length > 0;
+      const hasData = activeDays.size > 0 || monthTasksCreated.length > 0 || monthGoals.length > 0 || monthSessions.length > 0 || monthRecords.length > 0;
       const bestArea = areas[0] ?? null;
       const attentionArea = areas.length > 1 ? areas[areas.length - 1] : null;
       const scoreMetrics = [currentDay ? Math.round((activeDays.size / currentDay) * 100) : null, monthTasksCreated.length ? Math.round((completedMonthTasks.length / monthTasksCreated.length) * 100) : null, areas.length ? Math.round(areas.reduce((sum, area) => sum + area.rate, 0) / areas.length) : null].filter((value): value is number => value !== null);
@@ -1055,7 +1063,7 @@ export const appRouter = router({
         month,
         period: { start: `${month}-01`, end: input.today, type: "month_to_date" },
         hasData,
-        summary: { consistency: currentDay ? Math.round((activeDays.size / currentDay) * 100) : 0, activeDays: activeDays.size, completedTasks: completedTasks.length, tasksCreated: monthTasksCreated.length, tasksCompletedFromCreated: completedMonthTasks.length, trainingSessions: monthSessions.length, accompaniedGoals: monthGoals.length },
+        summary: { consistency: currentDay ? Math.round((activeDays.size / currentDay) * 100) : 0, activeDays: activeDays.size, completedTasks: completedTasks.length, tasksCreated: monthTasksCreated.length, tasksCompletedFromCreated: completedMonthTasks.length, trainingSessions: monthSessions.length, accompaniedGoals: monthGoals.length, financeIncomeCents: financeIncome, financeExpensesCents: financeExpenses, financeBalanceCents: financeIncome - financeExpenses, nutritionCalories },
         score: scoreValue === null ? null : { value: scoreValue, label: scoreLabel, criteria: "Média de consistência, conclusão de tarefas e desempenho médio das áreas registradas." },
         daily,
         areas,
