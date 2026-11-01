@@ -221,6 +221,10 @@ function PhaseTwoWorkspace({ module }: { module: "habitos" | "tarefas" | "metas"
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!title.trim()) return;
+    if (module === "metas" && editingGoalId && goalSourcesQuery.isFetching) {
+      toast.error("Aguarde o carregamento das fontes desta meta antes de salvar.");
+      return;
+    }
     try {
       if (module === "habitos") await createHabit.mutateAsync({ name: title, category: category || undefined, isCorrosive, frequency });
       if (module === "tarefas") await createTask.mutateAsync({ title, category: category || undefined, isCorrosive, dueDate: deadline || null, goalId: taskGoalId ? Number(taskGoalId) : null });
