@@ -4,7 +4,8 @@ const backupDate = z.union([z.string().min(1), z.date()]).nullable().optional();
 const backupRow = z.record(z.string(), z.unknown());
 
 export const backupPayloadSchema = z.object({
-  version: z.number().int().min(1).max(2),
+  version: z.number().int().min(1).max(3),
+  exportId: z.string().uuid().optional(),
   exportedAt: z.string().optional(),
   records: z.array(backupRow).max(5000).default([]),
   habits: z.array(backupRow).max(1000).default([]),
@@ -24,7 +25,9 @@ export const backupPayloadSchema = z.object({
   trainingExercises: z.array(backupRow).max(10000).default([]),
   trainingSessions: z.array(backupRow).max(5000).default([]),
   trainingSets: z.array(backupRow).max(50000).default([]),
-}).passthrough();
+}).passthrough().superRefine((payload, context) => {
+  if (payload.version >= 3 && !payload.exportId) context.addIssue({ code: "custom", path: ["exportId"], message: "Backup v3 precisa de um identificador de exportação." });
+});
 
 export type BackupPayload = z.infer<typeof backupPayloadSchema>;
 
@@ -70,11 +73,20 @@ export function asDate(value: unknown, label: string, dateOnly = false) {
 export function assertBackupRelationships(payload: BackupPayload) {
   const habitIds = new Set(payload.habits.map(row => rowId(row, "Hábito")));
   const goalIds = new Set(payload.goals.map(row => rowId(row, "Meta")));
+  const goalWeights = new Map<number, number>();
   for (const row of payload.goalSources) {
-    if (!goalIds.has(requiredNumber(row, "goalId", "Fonte de meta"))) throw new Error("A fonte de meta aponta para uma meta inexistente.");
+    const goalId = requiredNumber(row, "goalId", "Fonte de meta");
+    if (!goalIds.has(goalId)) throw new Error("A fonte de meta aponta para uma meta inexistente.");
     const weight = requiredNumber(row, "weightPercent", "Fonte de meta");
     if (weight < 1 || weight > 100) throw new Error("A proporção da fonte de meta é inválida.");
+    const sourceType = requiredString(row, "sourceType", "Fonte de meta");
+    if (!["habit", "tasks", "focus", "training", "nutrition", "manual"].includes(sourceType)) throw new Error("A fonte de meta possui um tipo inválido.");
+    const sourceId = optionalNumber(row, "sourceId");
+    if (sourceType === "habit" && (sourceId === null || !habitIds.has(sourceId))) throw new Error("A fonte de meta aponta para um hábito inexistente.");
+    if (sourceType !== "habit" && sourceId !== null) throw new Error("Somente fontes de hábito podem apontar para um registro específico.");
+    goalWeights.set(goalId, (goalWeights.get(goalId) ?? 0) + weight);
   }
+  for (const [goalId, weight] of goalWeights) if (weight !== 100) throw new Error(`As fontes da meta ${goalId} não somam 100%.`);
   const libraryIds = new Set(payload.exerciseLibrary.map(row => rowId(row, "Exercício da biblioteca")));
   const planIds = new Set(payload.trainingPlans.map(row => rowId(row, "Ficha")));
   const exerciseIds = new Set(payload.trainingExercises.map(row => rowId(row, "Exercício")));
@@ -115,8 +127,13 @@ export function assertBackupRelationships(payload: BackupPayload) {
   for (const row of payload.trainingSessions) {
     if (!planIds.has(requiredNumber(row, "planId", "Sessão"))) throw new Error("O backup contém uma sessão ligada a uma ficha inexistente.");
   }
+  const planByExercise = new Map(payload.trainingExercises.map(row => [rowId(row, "Exercício"), requiredNumber(row, "planId", "Exercício")]));
+  const planBySession = new Map(payload.trainingSessions.map(row => [rowId(row, "Sessão"), requiredNumber(row, "planId", "Sessão")]));
   for (const row of payload.trainingSets) {
-    if (!sessionIds.has(requiredNumber(row, "sessionId", "Série")) || !exerciseIds.has(requiredNumber(row, "exerciseId", "Série"))) throw new Error("O backup contém uma série ligada a uma sessão ou exercício inexistente.");
+    const sessionId = requiredNumber(row, "sessionId", "Série");
+    const exerciseId = requiredNumber(row, "exerciseId", "Série");
+    if (!sessionIds.has(sessionId) || !exerciseIds.has(exerciseId)) throw new Error("O backup contém uma série ligada a uma sessão ou exercício inexistente.");
+    if (planBySession.get(sessionId) !== planByExercise.get(exerciseId)) throw new Error("O backup contém uma série cujo exercício não pertence à ficha da sessão.");
   }
 }
 
