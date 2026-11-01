@@ -68,6 +68,14 @@ function calculateStreak(days: Set<string>, today: string) {
   return streak;
 }
 
+export function calculateDailyScore(dailyHabitCount: number, completedDailyHabitCount: number, todayTasks: Array<{ status: string }>) {
+  const total = Math.max(0, dailyHabitCount) + todayTasks.length;
+  if (total === 0) return 0;
+  const completedHabits = Math.max(0, Math.min(dailyHabitCount, completedDailyHabitCount));
+  const completedTasks = todayTasks.filter(task => task.status === "completed").length;
+  return Math.max(0, Math.min(100, Math.round(((completedHabits + completedTasks) / total) * 100)));
+}
+
 const POINTS = { habitDone: 2, habitMissed: -1, goalDone: 8, focusBlock: 1 } as const;
 const CATEGORY_POINTS: Record<string, number> = {
   "Outros": 4,
@@ -364,7 +372,7 @@ export const appRouter = router({
           .sort((a, b) => pointsForCategory(b.category) - pointsForCategory(a.category) || sortableDate(a.dueDate).localeCompare(sortableDate(b.dueDate)))
           .slice(0, 6)
           .map(task => ({ ...task, points: pointsForCategory(task.category) }));
-        const todayTasks = taskRows.filter(task => dateKey(task.createdAt) === input.today || Boolean(task.dueDate && dateKey(task.dueDate) === input.today)).sort((a, b) => Number(a.status === "completed") - Number(b.status === "completed"));
+        const todayTasks = taskRows.filter(task => dateKey(task.createdAt) === input.today || Boolean(task.dueDate && dateKey(task.dueDate) === input.today) || (task.status === "completed" && dateKey(task.updatedAt) === input.today)).sort((a, b) => Number(a.status === "completed") - Number(b.status === "completed"));
         const categoryStats = Object.entries(taskRows.reduce<Record<string, { total: number; completed: number; points: number }>>((result, task) => {
           const current = result[task.category] ?? { total: 0, completed: 0, points: pointsForCategory(task.category) };
           current.total += 1;
@@ -373,10 +381,9 @@ export const appRouter = router({
           return result;
         }, {})).map(([category, values]) => ({ category, ...values, rate: values.total ? Math.round((values.completed / values.total) * 100) : 0 })).sort((a, b) => a.rate - b.rate);
         const taskInsights = { todayTotal: todayTasks.length, todayCompleted: todayTasks.filter(task => task.status === "completed").length, strongestCategory: [...categoryStats].sort((a, b) => b.rate - a.rate)[0]?.category ?? null, difficultCategory: categoryStats[0]?.category ?? null, categoryStats };
-        const completedTasks = taskRows.filter(task => task.status === "completed").length;
-        const totalSignals = habitRows.length + taskRows.length;
-        const completedSignals = todayCompleted.size + completedTasks - overdueTasks.length;
-        const score = totalSignals === 0 ? 0 : Math.max(0, Math.min(100, Math.round((completedSignals / totalSignals) * 100)));
+        const dailyHabits = habitRows.filter(habit => habit.frequency === "daily");
+        const completedDailyHabits = dailyHabits.filter(habit => todayCompleted.has(habit.id)).length;
+        const score = calculateDailyScore(dailyHabits.length, completedDailyHabits, todayTasks);
         const focusMinutes = focusRows.reduce((sum, session) => sum + session.durationMinutes, 0);
         const weekStart = new Date(`${input.today}T12:00:00Z`);
         weekStart.setUTCDate(weekStart.getUTCDate() - 6);
