@@ -32,6 +32,7 @@ import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { asDate, assertBackupRelationships, backupPayloadSchema, optionalNumber, optionalString, remapPointReference, requiredNumber, requiredString, rowId } from "./backup";
 import { rewardCostPoints } from "./rewards";
 import { calculateWalletBalance, summarizeLedgerPeriod } from "./points-ledger";
+import { getReportWindows } from "./reporting";
 
 const daySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida");
 const idSchema = z.number().int().positive();
@@ -849,19 +850,15 @@ export const appRouter = router({
         db.select().from(goals).where(eq(goals.userId, ctx.user.id)),
         db.select().from(focusSessions).where(eq(focusSessions.userId, ctx.user.id)),
       ]);
-      const month = input.today.slice(0, 7);
+      const windows = getReportWindows(input.today);
+      const month = windows.month;
       const monthRecords = records.filter(record => dateKey(record.recordDate ?? record.createdAt).startsWith(month));
       const finance = monthRecords.filter(record => record.module === "financas");
       const income = finance.filter(record => decodeDetails(record.details).type === "income").reduce((sum, record) => sum + Math.abs(record.amountCents), 0);
       const expenses = finance.filter(record => decodeDetails(record.details).type !== "income").reduce((sum, record) => sum + Math.abs(record.amountCents), 0);
       const nutrition = records.filter(record => record.module === "alimentacao" && dateKey(record.recordDate ?? record.createdAt) === input.today).reduce((sum, record) => sum + record.numericValue, 0);
       const xp = completionRows.length * 10 + taskRows.filter(task => task.status === "completed").length * 25 + goalRows.filter(goal => goal.status === "completed").length * 100 + focusRows.reduce((sum, session) => sum + session.durationMinutes, 0);
-      const chartEnd = new Date(`${input.today}T12:00:00.000Z`);
-      const dailyStats = Array.from({ length: 14 }, (_, index) => {
-        const dayDate = new Date(chartEnd);
-        dayDate.setUTCHours(12, 0, 0, 0);
-        dayDate.setUTCDate(dayDate.getUTCDate() - (13 - index));
-        const day = dayDate.toISOString().slice(0, 10);
+      const dailyStats = windows.dailyDays.map(day => {
         const dayHabits = completionRows.filter(item => dateKey(item.day) === day);
         const dayTasks = taskRows.filter(item => item.status === "completed" && dateKey(item.updatedAt) === day);
         const categories = new Set<string>();
@@ -896,8 +893,9 @@ export const appRouter = router({
         db.select().from(goals).where(eq(goals.userId, ctx.user.id)),
         db.select().from(trainingSessions).where(and(eq(trainingSessions.userId, ctx.user.id), eq(trainingSessions.status, "completed"))),
       ]);
-      const month = input.today.slice(0, 7);
-      const currentDay = Number(input.today.slice(8, 10));
+      const windows = getReportWindows(input.today);
+      const month = windows.month;
+      const currentDay = windows.monthDays;
       const inMonth = (value: Date | string | null) => Boolean(value && dateKey(value).startsWith(month));
       const completedTasks = taskRows.filter(task => task.status === "completed" && inMonth(task.updatedAt));
       const completedMonthTasks = monthTasksCreated.filter(task => task.status === "completed" && inMonth(task.updatedAt));
@@ -909,8 +907,7 @@ export const appRouter = router({
       completedTasks.forEach(task => activeDays.add(dateKey(task.updatedAt)));
       monthCompletions.forEach(item => activeDays.add(dateKey(item.day)));
       monthSessions.forEach(item => activeDays.add(dateKey(item.sessionDate)));
-      const daily = Array.from({ length: currentDay }, (_, index) => {
-        const day = `${month}-${String(index + 1).padStart(2, "0")}`;
+      const daily = windows.monthToDateDays.map(day => {
         const categories = new Set<string>();
         let points = 0;
         for (const item of monthCompletions.filter(row => dateKey(row.day) === day)) {
