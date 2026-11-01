@@ -899,10 +899,10 @@ export const appRouter = router({
       const currentDay = windows.monthDays;
       const inMonth = (value: Date | string | null) => Boolean(value && dateKey(value).startsWith(month));
       const completedTasks = taskRows.filter(task => task.status === "completed" && inMonth(task.updatedAt));
+      const monthTasksCreated = taskRows.filter(task => inMonth(task.createdAt));
       const completedMonthTasks = monthTasksCreated.filter(task => task.status === "completed" && inMonth(task.updatedAt));
       const monthCompletions = completionRows.filter(item => inMonth(item.day));
       const monthSessions = sessions.filter(item => inMonth(item.sessionDate));
-      const monthTasksCreated = taskRows.filter(task => inMonth(task.createdAt));
       const monthGoals = goalRows.filter(goal => inMonth(goal.createdAt) || inMonth(goal.updatedAt));
       const activeDays = new Set<string>();
       completedTasks.forEach(task => activeDays.add(dateKey(task.updatedAt)));
