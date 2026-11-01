@@ -138,6 +138,32 @@ async function recordActivityOutcome(db: Db, input: ActivityOutcomeInput) {
   return db.transaction(tx => recordActivityOutcomeInTransaction(tx, input));
 }
 
+async function recordGoalCompletionInTransaction(tx: DbTransaction, userId: number, goalId: number) {
+  const idempotencyKey = `goal:${goalId}:completed:v1`;
+  await tx.insert(pointTransactions).values({
+    userId, points: POINTS.goalDone, reason: "Meta concluída", referenceId: goalId,
+    category: "Metas", movementType: "earned", sourceType: "goal", sourceId: goalId,
+    occurrenceDate: new Date(`${currentDayKey()}T00:00:00.000Z`), idempotencyKey,
+  }).onDuplicateKeyUpdate({ set: { idempotencyKey } });
+}
+
+async function recordFocusBlocksInTransaction(tx: DbTransaction, userId: number, sessionId: number, durationMinutes: number, day: string) {
+  const start = weekStartKey(day);
+  const existing = await tx.select().from(pointTransactions).where(eq(pointTransactions.userId, userId));
+  const used = existing
+    .filter(row => row.sourceType === "focus" && row.occurrenceDate && dateKey(row.occurrenceDate) >= start && dateKey(row.occurrenceDate) <= day)
+    .reduce((sum, row) => sum + Math.max(0, row.points), 0);
+  const blocks = Math.min(Math.max(0, 5 - used), Math.floor(durationMinutes / 25));
+  for (let block = 1; block <= blocks; block += 1) {
+    const idempotencyKey = `focus:${sessionId}:block:${block}`;
+    await tx.insert(pointTransactions).values({
+      userId, points: POINTS.focusBlock, reason: "Bloco de foco concluído", referenceId: sessionId,
+      category: "Foco", movementType: "earned", sourceType: "focus", sourceId: sessionId,
+      occurrenceDate: new Date(`${day}T00:00:00.000Z`), idempotencyKey,
+    }).onDuplicateKeyUpdate({ set: { idempotencyKey } });
+  }
+}
+
 async function ensureLegacyOpeningBalance(db: Db, userId: number) {
   const idempotencyKey = "legacy-opening-balance:v1";
   await db.transaction(async tx => {
@@ -414,11 +440,16 @@ export const appRouter = router({
         dedupedEarned += Math.max(...sameDayActions.map(item => item.points));
       }
       const taskLost = overdueTasks.reduce((sum, task) => sum + (-Math.max(2, Math.round(legacyPointsForCategory(task.category) / 2))), 0);
-      const goalEarned = goalRows.filter(goal => goal.status === "completed" && dateKey(goal.updatedAt) >= start && dateKey(goal.updatedAt) <= input.today).length * POINTS.goalDone;
-      const focusEarned = Math.min(5, Math.floor(focusRows.filter(session => dateKey(session.createdAt) >= start && dateKey(session.createdAt) <= input.today).reduce((sum, session) => sum + session.durationMinutes, 0) / 25)) * POINTS.focusBlock;
+      const legacyGoalEarned = goalRows.filter(goal => goal.status === "completed" && dateKey(goal.updatedAt) >= start && dateKey(goal.updatedAt) <= input.today && dateKey(goal.updatedAt) < NEW_SCORING_START).length * POINTS.goalDone;
+      const legacyFocusMinutes = focusRows.filter(session => dateKey(session.createdAt) >= start && dateKey(session.createdAt) <= input.today && dateKey(session.createdAt) < NEW_SCORING_START).reduce((sum, session) => sum + session.durationMinutes, 0);
+      const legacyFocusEarned = Math.min(5, Math.floor(legacyFocusMinutes / 25)) * POINTS.focusBlock;
       const newLedgerRows = spendingRows.filter(row => row.movementType !== "legacy" && row.occurrenceDate && dateKey(row.occurrenceDate) >= start && dateKey(row.occurrenceDate) <= input.today);
       const ledgerPeriod = summarizeLedgerPeriod(spendingRows, start, input.today);
-      const earned = Math.max(0, dedupedEarned + goalEarned + focusEarned) + ledgerPeriod.earned;
+      const goalLedgerEarned = newLedgerRows.filter(row => row.sourceType === "goal" && row.points > 0).reduce((sum, row) => sum + row.points, 0);
+      const focusLedgerEarned = newLedgerRows.filter(row => row.sourceType === "focus" && row.points > 0).reduce((sum, row) => sum + row.points, 0);
+      const goalEarned = legacyGoalEarned + goalLedgerEarned;
+      const focusEarned = legacyFocusEarned + focusLedgerEarned;
+      const earned = Math.max(0, dedupedEarned + legacyGoalEarned + legacyFocusEarned) + ledgerPeriod.earned;
       const lost = Math.abs(habitMissed + taskLost) + ledgerPeriod.lost;
       const spent = ledgerPeriod.spent;
       const net = earned - lost - spent;
@@ -629,7 +660,7 @@ export const appRouter = router({
     }),
     update: protectedProcedure.input(goalInput.extend({ goalId: idSchema, status: z.enum(["active", "completed", "paused"]).optional() })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
-      const ownGoal = await db.select({ id: goals.id, automationType: goals.automationType, automationStartDate: goals.automationStartDate }).from(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id))).limit(1);
+      const ownGoal = await db.select({ id: goals.id, status: goals.status, automationType: goals.automationType, automationStartDate: goals.automationStartDate }).from(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id))).limit(1);
       if (!ownGoal[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Meta não encontrada." });
       await validateGoalSources(db, ctx.user.id, input.sources);
       if (input.automationType === "habit") {
@@ -638,7 +669,9 @@ export const appRouter = router({
       }
       const automationStartDate = input.automationType === "manual" ? null : ownGoal[0].automationType === input.automationType && ownGoal[0].automationStartDate ? ownGoal[0].automationStartDate : new Date();
       return db.transaction(async tx => {
-        await tx.update(goals).set({ title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null, automationType: input.automationType, automationRefId: input.automationType === "habit" ? input.automationRefId ?? null : input.automationType === "tasks" ? input.goalId : null, automationStartDate, status: input.status ?? "active" }).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)));
+        const nextStatus = input.status ?? "active";
+        await tx.update(goals).set({ title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null, automationType: input.automationType, automationRefId: input.automationType === "habit" ? input.automationRefId ?? null : input.automationType === "tasks" ? input.goalId : null, automationStartDate, status: nextStatus }).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)));
+        if (ownGoal[0].status !== "completed" && nextStatus === "completed") await recordGoalCompletionInTransaction(tx, ctx.user.id, input.goalId);
         if (input.sources) {
           await tx.delete(goalSources).where(and(eq(goalSources.goalId, input.goalId), eq(goalSources.userId, ctx.user.id)));
           await tx.insert(goalSources).values(input.sources.map(source => ({ userId: ctx.user.id, goalId: input.goalId, sourceType: source.sourceType, sourceId: source.sourceId ?? null, weightPercent: source.weightPercent })));
@@ -663,10 +696,14 @@ export const appRouter = router({
     }),
     updateProgress: protectedProcedure.input(z.object({ goalId: idSchema, progress: z.number().int().min(0).max(1000000) })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
-      const existing = await db.select({ automationType: goals.automationType }).from(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id))).limit(1);
+      const existing = await db.select({ automationType: goals.automationType, status: goals.status, target: goals.target }).from(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id))).limit(1);
       if (!existing[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Meta não encontrada." });
       if (existing[0].automationType !== "manual") throw new TRPCError({ code: "BAD_REQUEST", message: "O progresso desta meta é atualizado pelos registros reais." });
-      await db.update(goals).set({ progress: input.progress, status: input.progress >= 100 ? "completed" : "active" }).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)));
+      const nextStatus = input.progress >= existing[0].target ? "completed" : "active";
+      await db.transaction(async tx => {
+        await tx.update(goals).set({ progress: input.progress, status: nextStatus }).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)));
+        if (existing[0].status !== "completed" && nextStatus === "completed") await recordGoalCompletionInTransaction(tx, ctx.user.id, input.goalId);
+      });
       return { success: true } as const;
     }),
     delete: protectedProcedure.input(z.object({ goalId: idSchema })).mutation(async ({ ctx, input }) => {
@@ -1285,7 +1322,10 @@ export const appRouter = router({
         input.durationMinutes <= Math.ceil((end - start) / 60_000);
     }, { message: "A duração deve caber entre o início e o fim reais da sessão." })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
-      await db.insert(focusSessions).values({ userId: ctx.user.id, durationMinutes: input.durationMinutes, startedAt: new Date(input.startedAt), endedAt: new Date(input.endedAt) });
+      await db.transaction(async tx => {
+        const inserted = await tx.insert(focusSessions).values({ userId: ctx.user.id, durationMinutes: input.durationMinutes, startedAt: new Date(input.startedAt), endedAt: new Date(input.endedAt) });
+        await recordFocusBlocksInTransaction(tx, ctx.user.id, Number(inserted[0].insertId), input.durationMinutes, currentDayKey());
+      });
       return { success: true } as const;
     }),
   }),
