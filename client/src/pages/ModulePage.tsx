@@ -311,7 +311,7 @@ function SettingsWorkspace() {
   const settings = trpc.settings.get.useQuery(undefined, { refetchOnWindowFocus: false });
   const save = trpc.settings.update.useMutation({ onSuccess: () => settings.refetch() });
   const backup = trpc.backup.export.useQuery(undefined, { enabled: false });
-  const importRecords = trpc.backup.importRecords.useMutation({ onSuccess: result => toast.success("Backup restaurado", { description: `${result.imported} registros e dados relacionados foram mesclados sem sobrescrever o que já existe.` }), onError: error => toast.error("Backup não restaurado", { description: error.message }) });
+  const importRecords = trpc.backup.importRecords.useMutation({ onSuccess: result => toast.success(result.duplicate ? "Backup já restaurado" : "Backup restaurado", { description: result.message }), onError: error => toast.error("Backup não restaurado", { description: error.message }) });
   const [notifications, setNotifications] = useState(true); const [focus, setFocus] = useState(25); const [breakTime, setBreakTime] = useState(5); const [goals, setGoals] = useState("");
   useEffect(() => { if (settings.data) { setNotifications(settings.data.notifications); setFocus(settings.data.preferredFocusMinutes); setBreakTime(settings.data.preferredBreakMinutes); setGoals(settings.data.goals ?? ""); } }, [settings.data]);
   const download = async () => { const result = await backup.refetch(); if (!result.data) return; const blob = new Blob([JSON.stringify(result.data, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `caveira-backup-${todayKey()}.json`; anchor.click(); URL.revokeObjectURL(url); toast.success("Backup exportado."); };
