@@ -2,6 +2,7 @@ export type PointLedgerMovement = {
   points: number;
   movementType: string;
   occurrenceDate?: Date | string | null;
+  sourceType?: string | null;
 };
 
 function dayKey(value: Date | string | null | undefined) {
@@ -15,6 +16,17 @@ function dayKey(value: Date | string | null | undefined) {
  */
 export function calculateWalletBalance(rows: PointLedgerMovement[]) {
   return rows.reduce((balance, row) => balance + (row.movementType === "legacy" ? -Math.abs(row.points) : row.points), 0);
+}
+
+export function calculateLifetimeXp(rows: PointLedgerMovement[]) {
+  return Math.max(0, rows.reduce((total, row) => {
+    if (row.movementType === "legacy" || row.movementType === "redemption" || row.sourceType === "system") return total;
+    return total + row.points;
+  }, 0));
+}
+
+export function sumLedgerPointsForDay(rows: PointLedgerMovement[], day: string) {
+  return rows.reduce((total, row) => dayKey(row.occurrenceDate) === day ? total + row.points : total, 0);
 }
 
 export function summarizeLedgerPeriod(rows: PointLedgerMovement[], start: string, end: string) {
@@ -43,7 +55,7 @@ export function calculateWeeklyCompletionRate(
   end: string,
   dailyHabits: Array<{ id: number; createdAt: Date | string }>,
   completions: Array<{ habitId: number; day: Date | string; status: string }>,
-  tasks: Array<{ id: number; dueDate: Date | string | null; updatedAt: Date | string; status: string }>,
+  tasks: Array<{ id: number; dueDate: Date | string | null; completedAt: Date | string | null; status: string }>,
 ) {
   const habitById = new Map(dailyHabits.map(habit => [habit.id, dayKey(habit.createdAt) ?? start]));
   let habitOpportunities = 0;
@@ -64,10 +76,13 @@ export function calculateWeeklyCompletionRate(
     .map(row => `${row.habitId}:${dayKey(row.day)}`));
   const weeklyTasks = tasks.filter(task => {
     const dueDay = dayKey(task.dueDate);
-    const completedDay = task.status === "completed" ? dayKey(task.updatedAt) : null;
+    const completedDay = task.status === "completed" ? dayKey(task.completedAt) : null;
     return Boolean((dueDay && dueDay >= start && dueDay <= end) || (completedDay && completedDay >= start && completedDay <= end));
   });
-  const completedTasks = weeklyTasks.filter(task => task.status === "completed").length;
+  const completedTasks = weeklyTasks.filter(task => {
+    const completedDay = dayKey(task.completedAt);
+    return task.status === "completed" && completedDay !== null && completedDay >= start && completedDay <= end;
+  }).length;
   const obligations = habitOpportunities + weeklyTasks.length;
   const completed = completedHabitDays.size + completedTasks;
   return { rate: obligations ? Math.round((completed / obligations) * 100) : 0, obligations, completed };

@@ -31,7 +31,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { asDate, assertBackupRelationships, backupPayloadSchema, optionalNumber, optionalString, remapPointReference, requiredNumber, requiredString, rowId } from "./backup";
 import { rewardCostPoints } from "./rewards";
-import { calculateActivityTransition, calculateWalletBalance, calculateWeeklyCompletionRate, summarizeLedgerPeriod } from "./points-ledger";
+import { calculateActivityTransition, calculateLifetimeXp, calculateWalletBalance, calculateWeeklyCompletionRate, sumLedgerPointsForDay, summarizeLedgerPeriod } from "./points-ledger";
 import { getReportWindows, isWithinReportPeriod } from "./reporting";
 
 const daySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida");
@@ -50,6 +50,10 @@ async function requireDb() {
 
 function dateKey(value: Date | string) {
   return value instanceof Date ? value.toISOString().slice(0, 10) : String(value).slice(0, 10);
+}
+
+function currentDayKey() {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 }
 
 function sortableDate(value: Date | null) {
@@ -164,8 +168,8 @@ async function ensureLegacyOpeningBalance(db: Db, userId: number) {
     const habitEvents = completionRows.filter(row => row.status === 'completed' && inLegacyWindow(row.day)).map(row => ({
       day: dateKey(row.day), category: habitById.get(row.habitId)?.category ?? 'Hábitos', points: POINTS.habitDone,
     }));
-    const completedLegacyTasks = taskRows.filter(task => task.status === 'completed' && inLegacyWindow(task.updatedAt));
-    const taskEvents = completedLegacyTasks.map(task => ({ day: dateKey(task.updatedAt), category: task.category, points: legacyPointsForCategory(task.category) }));
+    const completedLegacyTasks = taskRows.filter(task => task.status === 'completed' && inLegacyWindow(task.completedAt ?? task.updatedAt));
+    const taskEvents = completedLegacyTasks.map(task => ({ day: dateKey(task.completedAt ?? task.updatedAt), category: task.category, points: legacyPointsForCategory(task.category) }));
     const events = [...habitEvents, ...taskEvents];
     const dedupeKeys = new Set<string>();
     let dedupedEarned = 0;
@@ -213,12 +217,12 @@ async function reconcileMissedActivities(db: Db, userId: number, today: string) 
 function weekStartKey(today: string) { const date = new Date(`${today}T12:00:00Z`); date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7)); return date.toISOString().slice(0, 10); }
 function overdueLoss(category: string | null | undefined) { return -Math.max(2, Math.round(pointsForCategory(category) / 2)); }
 
-export function calculateGoalProgress(goal: { automationType: string; automationRefId: number | null; goalId?: number; progress: number; target: number; automationStartDate: Date | string | null; createdAt: Date | string }, source: { habitCompletions: Array<{ habitId: number; day: Date | string; status: string }>; tasks: Array<{ status: string; updatedAt: Date | string; goalId?: number | null }>; focus: Array<{ durationMinutes: number; createdAt: Date | string }>; trainingDates: Array<Date | string>; nutritionDates: Array<Date | string> }, today: string) {
+export function calculateGoalProgress(goal: { automationType: string; automationRefId: number | null; goalId?: number; progress: number; target: number; automationStartDate: Date | string | null; createdAt: Date | string }, source: { habitCompletions: Array<{ habitId: number; day: Date | string; status: string }>; tasks: Array<{ status: string; completedAt: Date | string | null; goalId?: number | null }>; focus: Array<{ durationMinutes: number; createdAt: Date | string }>; trainingDates: Array<Date | string>; nutritionDates: Array<Date | string> }, today: string) {
   const start = dateKey(goal.automationStartDate ?? goal.createdAt);
   const inRange = (value: Date | string | null | undefined) => { if (!value) return false; const day = dateKey(value); return day >= start && day <= today; };
   let progress = goal.progress;
   if (goal.automationType === "habit") progress = source.habitCompletions.filter(item => item.status === "completed" && item.habitId === goal.automationRefId && inRange(item.day)).length;
-  if (goal.automationType === "tasks") { const linkedGoalId = goal.automationRefId ?? goal.goalId; progress = source.tasks.filter(item => item.status === "completed" && inRange(item.updatedAt) && (linkedGoalId == null || item.goalId === linkedGoalId)).length; }
+  if (goal.automationType === "tasks") { const linkedGoalId = goal.automationRefId ?? goal.goalId; progress = source.tasks.filter(item => item.status === "completed" && inRange(item.completedAt) && (linkedGoalId == null || item.goalId === linkedGoalId)).length; }
   if (goal.automationType === "focus") progress = source.focus.filter(item => inRange(item.createdAt)).reduce((sum, item) => sum + item.durationMinutes, 0);
   if (goal.automationType === "training") progress = source.trainingDates.filter(inRange).length;
   if (goal.automationType === "nutrition") progress = source.nutritionDates.filter(inRange).length;
@@ -392,11 +396,11 @@ export const appRouter = router({
           else if (missedHabitDays.has(`${habit.id}:${day}`) || day < input.today) habitMissed += POINTS.habitMissed;
         }
       }
-      const completedTasks = taskRows.filter(task => task.status === "completed" && dateKey(task.updatedAt) >= start && dateKey(task.updatedAt) <= input.today && dateKey(task.updatedAt) < NEW_SCORING_START);
+      const completedTasks = taskRows.filter(task => task.status === "completed" && task.completedAt && dateKey(task.completedAt) >= start && dateKey(task.completedAt) <= input.today && dateKey(task.completedAt) < NEW_SCORING_START);
       const overdueTasks = taskRows.filter(task => task.status !== "completed" && task.dueDate && dateKey(task.dueDate) >= start && dateKey(task.dueDate) < input.today && dateKey(task.dueDate) < NEW_SCORING_START);
       const completedTaskPoints = completedTasks.reduce((sum, task) => sum + legacyPointsForCategory(task.category), 0);
       const habitEvents = completionRows.filter(row => row.status === "completed" && dateKey(row.day) >= start && dateKey(row.day) <= input.today && dateKey(row.day) < NEW_SCORING_START).map(row => ({ day: dateKey(row.day), category: habitRows.find(habit => habit.id === row.habitId)?.category ?? "Hábitos", points: POINTS.habitDone }));
-      const taskEvents = completedTasks.map(task => ({ day: dateKey(task.updatedAt), category: task.category, points: legacyPointsForCategory(task.category) }));
+      const taskEvents = completedTasks.map(task => ({ day: dateKey(task.completedAt!), category: task.category, points: legacyPointsForCategory(task.category) }));
       const dedupeKeys = new Set<string>();
       let dedupedEarned = 0;
       for (const event of [...habitEvents, ...taskEvents]) {
@@ -463,7 +467,7 @@ export const appRouter = router({
           .sort((a, b) => pointsForCategory(b.category) - pointsForCategory(a.category) || sortableDate(a.dueDate).localeCompare(sortableDate(b.dueDate)))
           .slice(0, 6)
           .map(task => ({ ...task, points: pointsForCategory(task.category) }));
-        const todayTasks = taskRows.filter(task => dateKey(task.createdAt) === input.today || Boolean(task.dueDate && dateKey(task.dueDate) === input.today) || (task.status === "completed" && dateKey(task.updatedAt) === input.today)).sort((a, b) => Number(a.status === "completed") - Number(b.status === "completed"));
+        const todayTasks = taskRows.filter(task => dateKey(task.createdAt) === input.today || Boolean(task.dueDate && dateKey(task.dueDate) === input.today) || (task.status === "completed" && task.completedAt && dateKey(task.completedAt) === input.today)).sort((a, b) => Number(a.status === "completed") - Number(b.status === "completed"));
         const categoryStats = Object.entries(taskRows.reduce<Record<string, { total: number; completed: number; points: number }>>((result, task) => {
           const current = result[task.category] ?? { total: 0, completed: 0, points: pointsForCategory(task.category) };
           current.total += 1;
@@ -484,7 +488,7 @@ export const appRouter = router({
           .reduce((sum, session) => sum + session.durationMinutes, 0);
         const activityDates = Array.from(new Set([
           ...completionRows.filter(item => item.status === "completed").map(item => dateKey(item.day)),
-          ...taskRows.filter(item => item.status === "completed" && item.updatedAt).map(item => dateKey(item.updatedAt)),
+          ...taskRows.filter(item => item.status === "completed" && item.completedAt).map(item => dateKey(item.completedAt!)),
           ...focusRows.map(item => dateKey(item.createdAt)),
         ])).sort();
 
@@ -534,6 +538,7 @@ export const appRouter = router({
     }),
     toggleToday: protectedProcedure.input(z.object({ habitId: idSchema, day: daySchema, completed: z.boolean() })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
+      if (input.day > currentDayKey()) throw new TRPCError({ code: "BAD_REQUEST", message: "Não é possível registrar um hábito em uma data futura." });
       const ownHabit = await db.select({ id: habits.id, category: habits.category, isCorrosive: habits.isCorrosive }).from(habits).where(and(eq(habits.id, input.habitId), eq(habits.userId, ctx.user.id))).limit(1);
       if (!ownHabit[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Hábito não encontrado." });
       const day = new Date(`${input.day}T00:00:00.000Z`);
@@ -567,7 +572,7 @@ export const appRouter = router({
       await db.insert(tasks).values({ userId: ctx.user.id, title: input.title, category: input.category || "Geral", isCorrosive: input.isCorrosive, priority: "medium", dueDate: input.dueDate ? new Date(`${input.dueDate}T00:00:00.000Z`) : null, goalId: input.goalId ?? null });
       return { success: true } as const;
     }),
-    update: protectedProcedure.input(taskInput.extend({ taskId: idSchema, status: z.enum(["todo", "in_progress", "completed"]).optional() })).mutation(async ({ ctx, input }) => {
+    update: protectedProcedure.input(taskInput.extend({ taskId: idSchema })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
       const ownTask = await db.select({ id: tasks.id }).from(tasks).where(and(eq(tasks.id, input.taskId), eq(tasks.userId, ctx.user.id))).limit(1);
       if (!ownTask[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Tarefa não encontrada." });
@@ -575,19 +580,20 @@ export const appRouter = router({
         const ownGoal = await db.select({ id: goals.id }).from(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id))).limit(1);
         if (!ownGoal[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "A meta selecionada não pertence à sua conta." });
       }
-      await db.update(tasks).set({ title: input.title, category: input.category || "Geral", isCorrosive: input.isCorrosive, priority: "medium", dueDate: input.dueDate ? new Date(`${input.dueDate}T00:00:00.000Z`) : null, goalId: input.goalId ?? null, status: input.status ?? "todo" }).where(and(eq(tasks.id, input.taskId), eq(tasks.userId, ctx.user.id)));
+      await db.update(tasks).set({ title: input.title, category: input.category || "Geral", isCorrosive: input.isCorrosive, priority: "medium", dueDate: input.dueDate ? new Date(`${input.dueDate}T00:00:00.000Z`) : null, goalId: input.goalId ?? null }).where(and(eq(tasks.id, input.taskId), eq(tasks.userId, ctx.user.id)));
       return { success: true } as const;
     }),
     toggleComplete: protectedProcedure.input(z.object({ taskId: idSchema, completed: z.boolean(), today: daySchema.optional() })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
       const ownTask = await db.select({ id: tasks.id, dueDate: tasks.dueDate, status: tasks.status, category: tasks.category, isCorrosive: tasks.isCorrosive }).from(tasks).where(and(eq(tasks.id, input.taskId), eq(tasks.userId, ctx.user.id))).limit(1);
       if (!ownTask[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Tarefa não encontrada." });
-      const today = input.today ?? dateKey(new Date());
+      const today = input.today ?? currentDayKey();
+      if (today > currentDayKey()) throw new TRPCError({ code: "BAD_REQUEST", message: "Não é possível concluir uma tarefa em uma data futura." });
       if (input.completed && ownTask[0].dueDate && dateKey(ownTask[0].dueDate) < today) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "O prazo desta tarefa já terminou e ela foi considerada não concluída." });
       }
       await db.transaction(async tx => {
-        await tx.update(tasks).set({ status: input.completed ? "completed" : "todo" }).where(and(eq(tasks.id, input.taskId), eq(tasks.userId, ctx.user.id)));
+        await tx.update(tasks).set({ status: input.completed ? "completed" : "todo", completedAt: input.completed ? new Date() : null }).where(and(eq(tasks.id, input.taskId), eq(tasks.userId, ctx.user.id)));
         await recordActivityOutcomeInTransaction(tx, { userId: ctx.user.id, sourceType: "task", sourceId: input.taskId, occurrenceDate: today, category: ownTask[0].category, basePoints: pointsForCategory(ownTask[0].category), isCorrosive: ownTask[0].isCorrosive, outcome: input.completed ? "completed" : "missed" });
       });
       return { success: true } as const;
@@ -909,7 +915,7 @@ export const appRouter = router({
   reports: router({
     summary: protectedProcedure.input(z.object({ today: daySchema })).query(async ({ ctx, input }) => {
       const db = await requireDb();
-      const [records, habitRows, completionRows, taskRows, goalRows, focusRows, trainingRows] = await Promise.all([
+      const [records, habitRows, completionRows, taskRows, goalRows, focusRows, trainingRows, pointRows] = await Promise.all([
         db.select().from(moduleRecords).where(eq(moduleRecords.userId, ctx.user.id)).orderBy(desc(moduleRecords.recordDate), desc(moduleRecords.createdAt)),
         db.select().from(habits).where(eq(habits.userId, ctx.user.id)),
         db.select().from(habitCompletions).where(and(eq(habitCompletions.userId, ctx.user.id), eq(habitCompletions.status, "completed"))),
@@ -917,6 +923,7 @@ export const appRouter = router({
         db.select().from(goals).where(eq(goals.userId, ctx.user.id)),
         db.select().from(focusSessions).where(eq(focusSessions.userId, ctx.user.id)),
         db.select().from(trainingSessions).where(and(eq(trainingSessions.userId, ctx.user.id), eq(trainingSessions.status, "completed"))),
+        db.select().from(pointTransactions).where(eq(pointTransactions.userId, ctx.user.id)),
       ]);
       const windows = getReportWindows(input.today);
       const month = windows.month;
@@ -925,20 +932,12 @@ export const appRouter = router({
       const income = finance.filter(record => decodeDetails(record.details).type === "income").reduce((sum, record) => sum + Math.abs(record.amountCents), 0);
       const expenses = finance.filter(record => decodeDetails(record.details).type !== "income").reduce((sum, record) => sum + Math.abs(record.amountCents), 0);
       const nutrition = records.filter(record => record.module === "alimentacao" && dateKey(record.recordDate ?? record.createdAt) === input.today).reduce((sum, record) => sum + record.numericValue, 0);
-      const xp = completionRows.length * 10 + taskRows.filter(task => task.status === "completed").length * 25 + goalRows.filter(goal => goal.status === "completed").length * 100 + focusRows.reduce((sum, session) => sum + session.durationMinutes, 0);
+      const xp = calculateLifetimeXp(pointRows);
       const dailyStats = windows.dailyDays.map(day => {
         const dayHabits = completionRows.filter(item => dateKey(item.day) === day);
-        const dayTasks = taskRows.filter(item => item.status === "completed" && dateKey(item.updatedAt) === day);
-        const categories = new Set<string>();
-        let points = 0;
-        for (const habit of dayHabits.filter(item => item.status === "completed")) {
-          const category = habitRows.find(row => row.id === habit.habitId)?.category ?? "Hábitos";
-          if (!categories.has(category)) { categories.add(category); points += POINTS.habitDone; }
-        }
-        for (const task of dayTasks) {
-          if (!categories.has(task.category)) { categories.add(task.category); points += pointsForCategory(task.category); }
-        }
-        return { day, points, completedHabits: dayHabits.filter(item => item.status === "completed").length, completedTasks: dayTasks.length, focusMinutes: focusRows.filter(item => dateKey(item.createdAt) === day).reduce((sum, item) => sum + item.durationMinutes, 0), trainingSessions: trainingRows.filter(item => dateKey(item.sessionDate) === day).length };
+        const dayTasks = taskRows.filter(item => item.status === "completed" && item.completedAt && dateKey(item.completedAt) === day);
+        const points = sumLedgerPointsForDay(pointRows, day);
+        return { day, points, completedHabits: dayHabits.length, completedTasks: dayTasks.length, focusMinutes: focusRows.filter(item => dateKey(item.createdAt) === day).reduce((sum, item) => sum + item.durationMinutes, 0), trainingSessions: trainingRows.filter(item => dateKey(item.sessionDate) === day).length };
       });
       return {
         period: month,
@@ -954,42 +953,32 @@ export const appRouter = router({
     }),
     monthly: protectedProcedure.input(z.object({ today: daySchema })).query(async ({ ctx, input }) => {
       const db = await requireDb();
-      const [habitRows, completionRows, taskRows, goalRows, sessions] = await Promise.all([
+      const [habitRows, completionRows, taskRows, goalRows, sessions, pointRows] = await Promise.all([
         db.select().from(habits).where(eq(habits.userId, ctx.user.id)),
         db.select().from(habitCompletions).where(and(eq(habitCompletions.userId, ctx.user.id), eq(habitCompletions.status, "completed"))),
         db.select().from(tasks).where(eq(tasks.userId, ctx.user.id)),
         db.select().from(goals).where(eq(goals.userId, ctx.user.id)),
         db.select().from(trainingSessions).where(and(eq(trainingSessions.userId, ctx.user.id), eq(trainingSessions.status, "completed"))),
+        db.select().from(pointTransactions).where(eq(pointTransactions.userId, ctx.user.id)),
       ]);
       const windows = getReportWindows(input.today);
       const month = windows.month;
       const currentDay = windows.monthDays;
       const inMonth = (value: Date | string | null) => isWithinReportPeriod(value, windows.monthStart, input.today);
-      const completedTasks = taskRows.filter(task => task.status === "completed" && inMonth(task.updatedAt));
+      const completedTasks = taskRows.filter(task => task.status === "completed" && task.completedAt && inMonth(task.completedAt));
       const monthTasksCreated = taskRows.filter(task => inMonth(task.createdAt));
-      const completedMonthTasks = monthTasksCreated.filter(task => task.status === "completed" && inMonth(task.updatedAt));
+      const completedMonthTasks = monthTasksCreated.filter(task => task.status === "completed" && task.completedAt && inMonth(task.completedAt));
       const monthCompletions = completionRows.filter(item => inMonth(item.day));
       const monthSessions = sessions.filter(item => inMonth(item.sessionDate));
       const monthGoals = goalRows.filter(goal => inMonth(goal.createdAt) || (goal.status === "completed" && inMonth(goal.updatedAt)));
       const activeDays = new Set<string>();
-      completedTasks.forEach(task => activeDays.add(dateKey(task.updatedAt)));
+      completedTasks.forEach(task => activeDays.add(dateKey(task.completedAt!)));
       monthCompletions.forEach(item => activeDays.add(dateKey(item.day)));
       monthSessions.forEach(item => activeDays.add(dateKey(item.sessionDate)));
-      const daily = windows.monthToDateDays.map(day => {
-        const categories = new Set<string>();
-        let points = 0;
-        for (const item of monthCompletions.filter(row => dateKey(row.day) === day)) {
-          const category = habitRows.find(habit => habit.id === item.habitId)?.category ?? "Hábitos";
-          if (!categories.has(category)) { categories.add(category); points += POINTS.habitDone; }
-        }
-        for (const task of completedTasks.filter(row => dateKey(row.updatedAt) === day)) {
-          if (!categories.has(task.category)) { categories.add(task.category); points += pointsForCategory(task.category); }
-        }
-        for (const session of monthSessions.filter(row => dateKey(row.sessionDate) === day)) {
-          if (!categories.has("Físico")) { categories.add("Físico"); points += 5; }
-        }
-        return { day, points };
-      });
+      const daily = windows.monthToDateDays.map(day => ({
+        day,
+        points: sumLedgerPointsForDay(pointRows, day),
+      }));
       const areaMap = new Map<string, { total: number; completed: number }>();
       const addArea = (category: string, completed: number, total: number) => {
         const current = areaMap.get(category) ?? { total: 0, completed: 0 };
@@ -1147,7 +1136,7 @@ export const appRouter = router({
         for (const row of payload.tasks) {
           const oldId = rowId(row, "Tarefa");
           const oldGoal = optionalNumber(row, "goalId");
-          const result = await tx.insert(tasks).values({ userId, title: requiredString(row, "title", "Tarefa"), description: optionalString(row, "description"), category: text(row, "category", "Tarefa", "Geral"), isCorrosive: bool(row, "isCorrosive"), priority: enumValue(row, "priority", ["low", "medium", "high"] as const, "medium"), status: enumValue(row, "status", ["todo", "in_progress", "completed"] as const, "todo"), dueDate: date(row, "dueDate", "Tarefa", true), goalId: oldGoal === null ? null : maps.goals.get(oldGoal) ?? null });
+          const result = await tx.insert(tasks).values({ userId, title: requiredString(row, "title", "Tarefa"), description: optionalString(row, "description"), category: text(row, "category", "Tarefa", "Geral"), isCorrosive: bool(row, "isCorrosive"), priority: enumValue(row, "priority", ["low", "medium", "high"] as const, "medium"), status: enumValue(row, "status", ["todo", "in_progress", "completed"] as const, "todo"), dueDate: date(row, "dueDate", "Tarefa", true), completedAt: date(row, "completedAt", "Tarefa") ?? (row.status === "completed" ? date(row, "updatedAt", "Tarefa") : null), goalId: oldGoal === null ? null : maps.goals.get(oldGoal) ?? null });
           maps.tasks.set(oldId, Number(result[0].insertId)); count.tasks += 1;
         }
         for (const row of payload.rewards) {
