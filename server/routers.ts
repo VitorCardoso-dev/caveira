@@ -191,6 +191,22 @@ async function hydrateGoalProgress(db: Awaited<ReturnType<typeof requireDb>>, us
   });
 }
 
+async function validateGoalSources(db: Db, userId: number, sources: Array<{ sourceType: "habit" | "tasks" | "focus" | "training" | "nutrition" | "manual"; sourceId?: number | null; weightPercent: number }> | undefined) {
+  if (!sources) return;
+  if (sources.reduce((sum, source) => sum + source.weightPercent, 0) !== 100) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "As proporções das fontes devem somar 100%." });
+  }
+  for (const source of sources) {
+    if (source.sourceType === "habit") {
+      if (!source.sourceId) throw new TRPCError({ code: "BAD_REQUEST", message: "Toda fonte de hábito precisa de um hábito vinculado." });
+      const ownHabit = await db.select({ id: habits.id }).from(habits).where(and(eq(habits.id, source.sourceId), eq(habits.userId, userId))).limit(1);
+      if (!ownHabit[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "Uma fonte de hábito não pertence à sua conta." });
+    } else if (source.sourceId != null) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Somente fontes de hábito podem apontar para um registro específico." });
+    }
+  }
+}
+
 function decodeDetails(raw: string | null) {
   if (!raw) return {};
   try {
@@ -516,58 +532,52 @@ export const appRouter = router({
   goals: router({
     create: protectedProcedure.input(goalInput).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
-      if (input.sources && input.sources.reduce((sum, source) => sum + source.weightPercent, 0) !== 100) throw new TRPCError({ code: "BAD_REQUEST", message: "As proporções das fontes devem somar 100%." });
-      for (const source of input.sources ?? []) {
-        if (source.sourceType !== "habit") continue;
-        if (!source.sourceId) throw new TRPCError({ code: "BAD_REQUEST", message: "Toda fonte de hábito precisa de um hábito vinculado." });
-        const ownSourceHabit = await db.select({ id: habits.id }).from(habits).where(and(eq(habits.id, source.sourceId), eq(habits.userId, ctx.user.id))).limit(1);
-        if (!ownSourceHabit[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "Uma fonte de hábito não pertence à sua conta." });
-      }
+      await validateGoalSources(db, ctx.user.id, input.sources);
       if (input.automationType === "habit") {
         const ownHabit = input.automationRefId ? await db.select({ id: habits.id }).from(habits).where(and(eq(habits.id, input.automationRefId), eq(habits.userId, ctx.user.id))).limit(1) : [];
         if (!ownHabit[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha um hábito da sua conta para automatizar esta meta." });
       }
-      const inserted = await db.insert(goals).values({ userId: ctx.user.id, title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null, automationType: input.automationType, automationRefId: input.automationType === "habit" ? input.automationRefId ?? null : null, automationStartDate: input.automationType === "manual" ? null : new Date() });
-      const goalId = Number(inserted[0].insertId);
-      if (input.automationType === "tasks") await db.update(goals).set({ automationRefId: goalId }).where(and(eq(goals.id, goalId), eq(goals.userId, ctx.user.id)));
       const sources = input.sources ?? (input.automationType !== "manual" ? [{ sourceType: input.automationType, sourceId: input.automationType === "habit" ? input.automationRefId ?? null : null, weightPercent: 100 }] : []);
-      if (sources.length) await db.insert(goalSources).values(sources.map(source => ({ userId: ctx.user.id, goalId, sourceType: source.sourceType, sourceId: source.sourceId ?? null, weightPercent: source.weightPercent })));
-      return { success: true } as const;
+      return db.transaction(async tx => {
+        const inserted = await tx.insert(goals).values({ userId: ctx.user.id, title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null, automationType: input.automationType, automationRefId: input.automationType === "habit" ? input.automationRefId ?? null : null, automationStartDate: input.automationType === "manual" ? null : new Date() });
+        const goalId = Number(inserted[0].insertId);
+        if (input.automationType === "tasks") await tx.update(goals).set({ automationRefId: goalId }).where(and(eq(goals.id, goalId), eq(goals.userId, ctx.user.id)));
+        if (sources.length) await tx.insert(goalSources).values(sources.map(source => ({ userId: ctx.user.id, goalId, sourceType: source.sourceType, sourceId: source.sourceId ?? null, weightPercent: source.weightPercent })));
+        return { success: true, goalId } as const;
+      });
     }),
     update: protectedProcedure.input(goalInput.extend({ goalId: idSchema, status: z.enum(["active", "completed", "paused"]).optional() })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
       const ownGoal = await db.select({ id: goals.id, automationType: goals.automationType, automationStartDate: goals.automationStartDate }).from(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id))).limit(1);
       if (!ownGoal[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Meta não encontrada." });
-      if (input.sources && input.sources.reduce((sum, source) => sum + source.weightPercent, 0) !== 100) throw new TRPCError({ code: "BAD_REQUEST", message: "As proporções das fontes devem somar 100%." });
-      for (const source of input.sources ?? []) {
-        if (source.sourceType !== "habit") continue;
-        if (!source.sourceId) throw new TRPCError({ code: "BAD_REQUEST", message: "Toda fonte de hábito precisa de um hábito vinculado." });
-        const ownSourceHabit = await db.select({ id: habits.id }).from(habits).where(and(eq(habits.id, source.sourceId), eq(habits.userId, ctx.user.id))).limit(1);
-        if (!ownSourceHabit[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "Uma fonte de hábito não pertence à sua conta." });
-      }
+      await validateGoalSources(db, ctx.user.id, input.sources);
       if (input.automationType === "habit") {
         const ownHabit = input.automationRefId ? await db.select({ id: habits.id }).from(habits).where(and(eq(habits.id, input.automationRefId), eq(habits.userId, ctx.user.id))).limit(1) : [];
         if (!ownHabit[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha um hábito da sua conta para automatizar esta meta." });
       }
       const automationStartDate = input.automationType === "manual" ? null : ownGoal[0].automationType === input.automationType && ownGoal[0].automationStartDate ? ownGoal[0].automationStartDate : new Date();
-      await db.update(goals).set({ title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null, automationType: input.automationType, automationRefId: input.automationType === "habit" ? input.automationRefId ?? null : input.automationType === "tasks" ? input.goalId : null, automationStartDate, status: input.status ?? "active" }).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)));
-      if (input.sources) {
-        await db.delete(goalSources).where(and(eq(goalSources.goalId, input.goalId), eq(goalSources.userId, ctx.user.id)));
-        await db.insert(goalSources).values(input.sources.map(source => ({ userId: ctx.user.id, goalId: input.goalId, sourceType: source.sourceType, sourceId: source.sourceId ?? null, weightPercent: source.weightPercent })));
-      }
-      return { success: true } as const;
+      return db.transaction(async tx => {
+        await tx.update(goals).set({ title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null, automationType: input.automationType, automationRefId: input.automationType === "habit" ? input.automationRefId ?? null : input.automationType === "tasks" ? input.goalId : null, automationStartDate, status: input.status ?? "active" }).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)));
+        if (input.sources) {
+          await tx.delete(goalSources).where(and(eq(goalSources.goalId, input.goalId), eq(goalSources.userId, ctx.user.id)));
+          await tx.insert(goalSources).values(input.sources.map(source => ({ userId: ctx.user.id, goalId: input.goalId, sourceType: source.sourceType, sourceId: source.sourceId ?? null, weightPercent: source.weightPercent })));
+        }
+        return { success: true } as const;
+      });
     }),
     sources: protectedProcedure.input(z.object({ goalId: idSchema })).query(async ({ ctx, input }) => {
       const db = await requireDb();
       return db.select().from(goalSources).where(and(eq(goalSources.goalId, input.goalId), eq(goalSources.userId, ctx.user.id)));
     }),
     setSources: protectedProcedure.input(z.object({ goalId: idSchema, sources: z.array(z.object({ sourceType: z.enum(["habit", "tasks", "focus", "training", "nutrition", "manual"]), sourceId: idSchema.nullable().optional(), weightPercent: z.number().int().min(1).max(100) })).max(8) })).mutation(async ({ ctx, input }) => {
-      if (input.sources.reduce((sum, source) => sum + source.weightPercent, 0) !== 100) throw new TRPCError({ code: "BAD_REQUEST", message: "As proporções das fontes devem somar 100%." });
       const db = await requireDb();
       const ownGoal = await db.select({ id: goals.id }).from(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id))).limit(1);
       if (!ownGoal[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Meta não encontrada." });
-      await db.delete(goalSources).where(and(eq(goalSources.goalId, input.goalId), eq(goalSources.userId, ctx.user.id)));
-      if (input.sources.length) await db.insert(goalSources).values(input.sources.map(source => ({ userId: ctx.user.id, goalId: input.goalId, sourceType: source.sourceType, sourceId: source.sourceId ?? null, weightPercent: source.weightPercent })));
+      await validateGoalSources(db, ctx.user.id, input.sources);
+      await db.transaction(async tx => {
+        await tx.delete(goalSources).where(and(eq(goalSources.goalId, input.goalId), eq(goalSources.userId, ctx.user.id)));
+        await tx.insert(goalSources).values(input.sources.map(source => ({ userId: ctx.user.id, goalId: input.goalId, sourceType: source.sourceType, sourceId: source.sourceId ?? null, weightPercent: source.weightPercent })));
+      });
       return { success: true } as const;
     }),
     updateProgress: protectedProcedure.input(z.object({ goalId: idSchema, progress: z.number().int().min(0).max(1000000) })).mutation(async ({ ctx, input }) => {
