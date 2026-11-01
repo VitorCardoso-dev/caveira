@@ -92,6 +92,13 @@
       "when": 1793405575801,
       "tag": "0012_charming_jackpot",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "5",
+      "when": 1793545500000,
+      "tag": "0013_practical_query_indexes",
+      "breakpoints": true
     }
   ]
 }

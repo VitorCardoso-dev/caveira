@@ -33,7 +33,7 @@ export const habits = mysqlTable("habits", {
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({ userActiveIdx: index("habits_user_active_idx").on(table.userId, table.active) }));
 
 export const habitCompletions = mysqlTable("habit_completions", {
   id: int("id").autoincrement().primaryKey(),
@@ -80,7 +80,7 @@ export const goals = mysqlTable("goals", {
   status: mysqlEnum("status", ["active", "completed", "paused"]).default("active").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({ userStatusIdx: index("goals_user_status_idx").on(table.userId, table.status) }));
 
 export const goalSources = mysqlTable("goal_sources", {
   id: int("id").autoincrement().primaryKey(),
@@ -99,7 +99,7 @@ export const focusSessions = mysqlTable("focus_sessions", {
   startedAt: timestamp("startedAt").notNull(),
   endedAt: timestamp("endedAt").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, table => ({ userCreatedIdx: index("focus_sessions_user_created_idx").on(table.userId, table.createdAt) }));
 
 export const moduleRecords = mysqlTable("module_records", {
   id: int("id").autoincrement().primaryKey(),
@@ -114,7 +114,7 @@ export const moduleRecords = mysqlTable("module_records", {
   details: text("details"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({ userModuleDateIdx: index("module_records_user_module_date_idx").on(table.userId, table.module, table.recordDate) }));
 
 export const auditLogs = mysqlTable("audit_logs", {
   id: int("id").autoincrement().primaryKey(),
@@ -125,7 +125,7 @@ export const auditLogs = mysqlTable("audit_logs", {
   beforeData: text("beforeData"),
   afterData: text("afterData"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, table => ({ userCreatedIdx: index("audit_logs_user_created_idx").on(table.userId, table.createdAt) }));
 
 export const userSettings = mysqlTable("user_settings", {
   id: int("id").autoincrement().primaryKey(),
@@ -185,7 +185,7 @@ export const rewards = mysqlTable("rewards", {
   status: mysqlEnum("status", ["active", "archived"]).default("active").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({ userStatusIdx: index("rewards_user_status_idx").on(table.userId, table.status) }));
 
 export const rewardRedemptions = mysqlTable("reward_redemptions", {
   id: int("id").autoincrement().primaryKey(),
@@ -194,7 +194,7 @@ export const rewardRedemptions = mysqlTable("reward_redemptions", {
   costPoints: int("costPoints").notNull(),
   pointTransactionId: int("pointTransactionId").notNull().references(() => pointTransactions.id),
   redeemedAt: timestamp("redeemedAt").defaultNow().notNull(),
-});
+}, table => ({ userRedeemedIdx: index("reward_redemptions_user_redeemed_idx").on(table.userId, table.redeemedAt) }));
 
 export const exerciseLibrary = mysqlTable("exercise_library", {
   id: int("id").autoincrement().primaryKey(),
@@ -218,7 +218,7 @@ export const trainingPlans = mysqlTable("training_plans", {
   active: boolean("active").default(true).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({ userActiveIdx: index("training_plans_user_active_idx").on(table.userId, table.active) }));
 
 export const trainingExercises = mysqlTable("training_exercises", {
   id: int("id").autoincrement().primaryKey(),
@@ -236,7 +236,7 @@ export const trainingExercises = mysqlTable("training_exercises", {
   restSeconds: int("restSeconds").default(90).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
-});
+}, table => ({ planOrderIdx: index("training_exercises_plan_order_idx").on(table.userId, table.planId, table.sortOrder) }));
 
 export const trainingSessions = mysqlTable("training_sessions", {
   id: int("id").autoincrement().primaryKey(),
@@ -248,7 +248,7 @@ export const trainingSessions = mysqlTable("training_sessions", {
   status: varchar("status", { length: 24 }).default("in_progress").notNull(),
   notes: text("notes"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, table => ({ userStatusDateIdx: index("training_sessions_user_status_date_idx").on(table.userId, table.status, table.sessionDate) }));
 
 export const trainingSets = mysqlTable("training_sets", {
   id: int("id").autoincrement().primaryKey(),
