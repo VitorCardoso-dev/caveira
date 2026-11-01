@@ -259,6 +259,18 @@ function PhaseTwoWorkspace({ module }: { module: "habitos" | "tarefas" | "metas"
 function Empty({ label }: { label: string }) { return <div className="empty-state"><Target size={25} className="text-caveira-muted" /><p className="mt-3 text-sm font-semibold">{label}</p></div>; }
 
 
+function ReportMetric({ label, value, detail, icon: Icon, accent = "default" }: { label: string; value: string | number; detail: string; icon: LucideIcon; accent?: "default" | "red" | "green" }) { return <div className="metric-card"><div className={`metric-icon ${accent}`}><Icon size={17} /></div><div><p className="metric-label">{label}</p><p className="metric-value">{value}</p><p className="metric-detail">{detail}</p></div></div>; }
+
+function MonthlyLineChart({ points }: { points: Array<{ day: string; points: number }> }) {
+  const values = points.map(point => point.points);
+  const max = Math.max(...values, 1);
+  const width = 720;
+  const height = 210;
+  const chart = points.map((point, index) => `${(index / Math.max(points.length - 1, 1)) * width},${height - (point.points / max) * 165 - 15}`).join(" ");
+  return <div className="overflow-hidden rounded-2xl border border-caveira-border bg-caveira-panel-soft p-3"><svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" role="img" aria-label="Evolução diária do mês"><line x1="0" y1="195" x2={width} y2="195" stroke="#29292f" /><line x1="0" y1="112" x2={width} y2="112" stroke="#29292f" strokeDasharray="4 8" /><polyline fill="none" stroke="#e53935" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" points={chart} />{points.map((point, index) => <circle key={point.day} cx={(index / Math.max(points.length - 1, 1)) * width} cy={height - (point.points / max) * 165 - 15} r="4" fill="#b7f36b" />)}</svg><div className="mt-2 flex justify-between text-[10px] font-bold uppercase tracking-[.12em] text-caveira-muted"><span>dia 01</span><span>picos e baixas do mês</span><span>dia {String(points.length).padStart(2, "0")}</span></div></div>;
+}
+
+
 function ReportsWorkspace() {
   const query = trpc.reports.summary.useQuery({ today: todayKey() }, { refetchOnWindowFocus: false });
   const points = trpc.points.weekly.useQuery({ today: todayKey() }, { refetchOnWindowFocus: false });
