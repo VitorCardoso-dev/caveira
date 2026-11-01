@@ -1152,11 +1152,11 @@ export const appRouter = router({
           const sourceId = oldSourceId === null ? null
             : sourceType === "habit" ? maps.habits.get(oldSourceId) ?? null
             : sourceType === "task" ? maps.tasks.get(oldSourceId) ?? null
-            : sourceType === "reward" ? maps.rewards.get(oldSourceId) ?? null
+            : sourceType === "reward" ? maps.rewards.get(oldSourceId) ?? maps.records.get(oldSourceId) ?? null
             : oldSourceId;
           const oldRef = optionalNumber(row, "referenceId");
           const referenceId = sourceType === "reward" && oldRef !== null
-            ? maps.rewards.get(oldRef) ?? null
+            ? maps.rewards.get(oldRef) ?? maps.records.get(oldRef) ?? null
             : sourceType === "habit" && oldRef !== null
               ? maps.habits.get(oldRef) ?? null
               : sourceType === "task" && oldRef !== null
@@ -1188,7 +1188,7 @@ export const appRouter = router({
         return { duplicate: false } as const;
       });
       if (importResult.duplicate) return { success: true, duplicate: true, imported: 0, counts: null, message: "Este backup já foi restaurado nesta conta." } as const;
-      return { success: true, duplicate: false, imported: count.records, counts: count, message: "Backup validado e mesclado sem sobrescrever dados existentes." } as const;
+      return { success: true, duplicate: false, imported: Object.values(count).reduce((sum, value) => sum + value, 0), counts: count, message: "Backup validado e mesclado sem sobrescrever dados existentes." } as const;
     }),
   }),
 
