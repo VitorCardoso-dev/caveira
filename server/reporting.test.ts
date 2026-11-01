@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getReportWindows } from "./reporting";
+import { getReportWindows, isWithinReportPeriod } from "./reporting";
 
 describe("janelas dos relatórios", () => {
   it("usa o dia informado pelo usuário e separa mês, hoje e últimos 14 dias", () => {
@@ -21,5 +21,12 @@ describe("janelas dos relatórios", () => {
 
   it("rejeita datas impossíveis", () => {
     expect(() => getReportWindows("2026-02-30")).toThrow("Data de referência inválida");
+  });
+
+  it("não inclui lançamentos futuros em um relatório mês até hoje", () => {
+    expect(isWithinReportPeriod("2026-11-01", "2026-11-01", "2026-11-01")).toBe(true);
+    expect(isWithinReportPeriod("2026-11-02", "2026-11-01", "2026-11-01")).toBe(false);
+    expect(isWithinReportPeriod("2026-10-31", "2026-11-01", "2026-11-01")).toBe(false);
+    expect(isWithinReportPeriod(null, "2026-11-01", "2026-11-01")).toBe(false);
   });
 });
