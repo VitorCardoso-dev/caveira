@@ -404,6 +404,7 @@ export const appRouter = router({
         const dailyHabits = habitRows.filter(habit => habit.frequency === "daily");
         const completedDailyHabits = dailyHabits.filter(habit => todayCompleted.has(habit.id)).length;
         const score = calculateDailyScore(dailyHabits.length, completedDailyHabits, todayTasks);
+        const completedTasks = taskRows.filter(task => task.status === "completed").length;
         const focusMinutes = focusRows.reduce((sum, session) => sum + session.durationMinutes, 0);
         const weekStart = new Date(`${input.today}T12:00:00Z`);
         weekStart.setUTCDate(weekStart.getUTCDate() - 6);
