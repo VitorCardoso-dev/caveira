@@ -310,7 +310,9 @@ const habitInput = z.object({
   name: z.string().trim().min(2).max(160),
   category: z.string().trim().max(80).optional(),
   isCorrosive: z.boolean().default(false),
-  frequency: z.enum(["daily", "weekly", "custom"]).default("daily"),
+  // Weekly/custom recurrence has no persisted schedule yet. Reject it until its
+  // calendar rules are implemented instead of accepting arbitrary completions.
+  frequency: z.literal("daily").default("daily"),
 });
 
 const taskInput = z.object({
@@ -1271,7 +1273,17 @@ export const appRouter = router({
       const db = await requireDb();
       return db.select().from(focusSessions).where(eq(focusSessions.userId, ctx.user.id)).orderBy(desc(focusSessions.createdAt)).limit(30);
     }),
-    log: protectedProcedure.input(z.object({ durationMinutes: z.number().int().min(1).max(1440), startedAt: z.string().datetime(), endedAt: z.string().datetime() })).mutation(async ({ ctx, input }) => {
+    log: protectedProcedure.input(z.object({
+      durationMinutes: z.number().int().min(1).max(1440),
+      startedAt: z.string().datetime(),
+      endedAt: z.string().datetime(),
+    }).refine(input => {
+      const start = Date.parse(input.startedAt);
+      const end = Date.parse(input.endedAt);
+      const now = Date.now();
+      return Number.isFinite(start) && Number.isFinite(end) && start < end && end <= now + 60_000 &&
+        input.durationMinutes <= Math.ceil((end - start) / 60_000);
+    }, { message: "A duração deve caber entre o início e o fim reais da sessão." })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
       await db.insert(focusSessions).values({ userId: ctx.user.id, durationMinutes: input.durationMinutes, startedAt: new Date(input.startedAt), endedAt: new Date(input.endedAt) });
       return { success: true } as const;
