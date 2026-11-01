@@ -124,8 +124,8 @@ describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
 
     const legacyStartedAt = new Date("2026-10-27T12:00:00.000Z");
     await db.insert(focusSessions).values({
-      userId: owner.id, durationMinutes: 50, startedAt: legacyStartedAt,
-      endedAt: new Date("2026-10-27T12:50:00.000Z"), createdAt: legacyStartedAt,
+      userId: owner.id, durationMinutes: 100, startedAt: legacyStartedAt,
+      endedAt: new Date("2026-10-27T13:40:00.000Z"), createdAt: legacyStartedAt,
     });
     const endedAt = new Date();
     const startedAt = new Date(endedAt.getTime() - 50 * 60_000);
@@ -138,7 +138,7 @@ describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
 
     const ledger = await db.select().from(pointTransactions).where(eq(pointTransactions.userId, owner.id));
     expect(ledger.filter(row => row.sourceType === "goal" && row.points === 8)).toHaveLength(1);
-    expect(ledger.filter(row => row.sourceType === "focus" && row.points === 1)).toHaveLength(3);
+    expect(ledger.filter(row => row.sourceType === "focus" && row.points === 1)).toHaveLength(1);
 
     const weekly = await api.points.weekly({ today });
     expect(weekly.earned).toBe(13);
