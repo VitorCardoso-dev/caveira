@@ -32,7 +32,7 @@ import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { asDate, assertBackupRelationships, backupPayloadSchema, optionalNumber, optionalString, remapPointReference, requiredNumber, requiredString, rowId } from "./backup";
 import { rewardCostPoints } from "./rewards";
 import { calculateActivityTransition, calculateWalletBalance, summarizeLedgerPeriod } from "./points-ledger";
-import { getReportWindows } from "./reporting";
+import { getReportWindows, isWithinReportPeriod } from "./reporting";
 
 const daySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida");
 const idSchema = z.number().int().positive();
@@ -862,7 +862,7 @@ export const appRouter = router({
       ]);
       const windows = getReportWindows(input.today);
       const month = windows.month;
-      const monthRecords = records.filter(record => dateKey(record.recordDate ?? record.createdAt).startsWith(month));
+      const monthRecords = records.filter(record => isWithinReportPeriod(record.recordDate ?? record.createdAt, windows.monthStart, input.today));
       const finance = monthRecords.filter(record => record.module === "financas");
       const income = finance.filter(record => decodeDetails(record.details).type === "income").reduce((sum, record) => sum + Math.abs(record.amountCents), 0);
       const expenses = finance.filter(record => decodeDetails(record.details).type !== "income").reduce((sum, record) => sum + Math.abs(record.amountCents), 0);
@@ -906,7 +906,7 @@ export const appRouter = router({
       const windows = getReportWindows(input.today);
       const month = windows.month;
       const currentDay = windows.monthDays;
-      const inMonth = (value: Date | string | null) => Boolean(value && dateKey(value).startsWith(month));
+      const inMonth = (value: Date | string | null) => isWithinReportPeriod(value, windows.monthStart, input.today);
       const completedTasks = taskRows.filter(task => task.status === "completed" && inMonth(task.updatedAt));
       const monthTasksCreated = taskRows.filter(task => inMonth(task.createdAt));
       const completedMonthTasks = monthTasksCreated.filter(task => task.status === "completed" && inMonth(task.updatedAt));
