@@ -28,6 +28,7 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import { asDate, assertBackupRelationships, backupPayloadSchema, optionalNumber, optionalString, remapPointReference, requiredNumber, requiredString, rowId } from "./backup";
+import { rewardCostPoints } from "./rewards";
 
 const daySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida");
 const idSchema = z.number().int().positive();
@@ -596,7 +597,8 @@ export const appRouter = router({
       const db = await requireDb();
       const existing = await db.select().from(moduleRecords).where(and(eq(moduleRecords.id, input.id), eq(moduleRecords.userId, ctx.user.id))).limit(1);
       if (!existing[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Registro não encontrado." });
-      await db.update(moduleRecords).set({ title: input.title, subtitle: input.subtitle || null, status: input.status, numericValue: input.numericValue, amountCents: input.amountCents, recordDate: input.recordDate ? new Date(`${input.recordDate}T00:00:00.000Z`) : null, details: JSON.stringify(input.details) }).where(eq(moduleRecords.id, input.id));
+      if (existing[0].module === "recompensas" && existing[0].status === "redeemed") throw new TRPCError({ code: "BAD_REQUEST", message: "Uma recompensa já resgatada não pode ser alterada." });
+      await db.update(moduleRecords).set({ title: input.title, subtitle: input.subtitle || null, status: input.status, numericValue: input.numericValue, amountCents: input.amountCents, recordDate: input.recordDate ? new Date(`${input.recordDate}T00:00:00.000Z`) : null, details: JSON.stringify(input.details) }).where(and(eq(moduleRecords.id, input.id), eq(moduleRecords.userId, ctx.user.id)));
       await db.insert(auditLogs).values({ userId: ctx.user.id, action: "update", entity: input.module, entityId: input.id, beforeData: JSON.stringify(serializeRecord(existing[0])), afterData: JSON.stringify(input) });
       return { success: true } as const;
     }),
@@ -604,18 +606,42 @@ export const appRouter = router({
       const db = await requireDb();
       const existing = await db.select().from(moduleRecords).where(and(eq(moduleRecords.id, input.id), eq(moduleRecords.userId, ctx.user.id))).limit(1);
       if (!existing[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Registro não encontrado." });
+      if (existing[0].module === "recompensas" && existing[0].status === "redeemed") throw new TRPCError({ code: "BAD_REQUEST", message: "Uma recompensa resgatada deve permanecer no histórico." });
       await db.delete(moduleRecords).where(and(eq(moduleRecords.id, input.id), eq(moduleRecords.userId, ctx.user.id)));
       await db.insert(auditLogs).values({ userId: ctx.user.id, action: "delete", entity: existing[0].module, entityId: input.id, beforeData: JSON.stringify(serializeRecord(existing[0])) });
       return { success: true } as const;
     }),
-    redeem: protectedProcedure.input(z.object({ id: idSchema, points: z.number().int().positive().max(100000) })).mutation(async ({ ctx, input }) => {
+    redeem: protectedProcedure.input(z.object({ id: idSchema })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
-      const existing = await db.select().from(moduleRecords).where(and(eq(moduleRecords.id, input.id), eq(moduleRecords.userId, ctx.user.id), eq(moduleRecords.module, "recompensas"))).limit(1);
-      if (!existing[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Recompensa não encontrada." });
-      if (existing[0].status === "redeemed") throw new TRPCError({ code: "BAD_REQUEST", message: "Esta recompensa já foi resgatada." });
-      await db.insert(pointTransactions).values({ userId: ctx.user.id, points: input.points, reason: `Resgate: ${existing[0].title}`, referenceId: input.id });
-      await db.update(moduleRecords).set({ status: "redeemed" }).where(eq(moduleRecords.id, input.id));
-      return { success: true } as const;
+      return db.transaction(async tx => {
+        const existing = await tx.select().from(moduleRecords).where(and(eq(moduleRecords.id, input.id), eq(moduleRecords.userId, ctx.user.id), eq(moduleRecords.module, "recompensas"))).limit(1);
+        if (!existing[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Recompensa não encontrada." });
+
+        const idempotencyKey = `legacy-reward:${input.id}`;
+        const previousMovement = await tx.select({ id: pointTransactions.id }).from(pointTransactions).where(and(eq(pointTransactions.userId, ctx.user.id), eq(pointTransactions.idempotencyKey, idempotencyKey))).limit(1);
+        if (previousMovement[0]) return { success: true, duplicate: true } as const;
+        if (existing[0].status === "redeemed") throw new TRPCError({ code: "BAD_REQUEST", message: "Esta recompensa já foi resgatada." });
+
+        const cost = rewardCostPoints(decodeDetails(existing[0].details));
+        if (cost === null) throw new TRPCError({ code: "BAD_REQUEST", message: "Defina um custo válido em pontos inteiros antes de resgatar." });
+        const today = new Date();
+        const occurrenceDate = new Date(`${today.toISOString().slice(0, 10)}T00:00:00.000Z`);
+        await tx.insert(pointTransactions).values({
+          userId: ctx.user.id,
+          points: -cost,
+          reason: `Resgate: ${existing[0].title}`,
+          referenceId: input.id,
+          category: "Outros",
+          movementType: "redemption",
+          sourceType: "reward",
+          sourceId: input.id,
+          occurrenceDate,
+          idempotencyKey,
+        });
+        await tx.update(moduleRecords).set({ status: "redeemed" }).where(and(eq(moduleRecords.id, input.id), eq(moduleRecords.userId, ctx.user.id)));
+        await tx.insert(auditLogs).values({ userId: ctx.user.id, action: "redeem", entity: "recompensas", entityId: input.id, beforeData: JSON.stringify(serializeRecord(existing[0])), afterData: JSON.stringify({ status: "redeemed", pointsDebited: cost }) });
+        return { success: true, duplicate: false } as const;
+      });
     }),
   }),
 
