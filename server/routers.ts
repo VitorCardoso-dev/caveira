@@ -162,7 +162,7 @@ async function recordFocusBlocksInTransaction(tx: DbTransaction, userId: number,
   const used = Math.min(5, legacyUsed + ledgerUsed);
   const blocks = Math.min(Math.max(0, 5 - used), Math.floor(durationMinutes / 25));
   for (let block = 1; block <= blocks; block += 1) {
-    const idempotencyKey = `focus:${sessionId}:block:${block}`;
+    const idempotencyKey = `focus:${start}:block:${used + block}`;
     await tx.insert(pointTransactions).values({
       userId, points: POINTS.focusBlock, reason: "Bloco de foco concluído", referenceId: sessionId,
       category: "Foco", movementType: "earned", sourceType: "focus", sourceId: sessionId,
