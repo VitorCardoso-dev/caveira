@@ -56,7 +56,9 @@ const suite = describe.skipIf(!enabled)("backup integration (MySQL)", () => {
     };
 
     await caller(source).backup.importRecords(seed);
+    await caller(source).points.weekly({ today: "2026-11-01" });
     const backup = await caller(source).backup.export();
+    expect(backup.pointTransactions.some(row => row.idempotencyKey === "legacy-opening-balance:v1")).toBe(false);
     const firstRestore = await caller(destination).backup.importRecords(backup);
     const duplicateRestore = await caller(destination).backup.importRecords(backup);
     const independentRestore = await caller(otherDestination).backup.importRecords(backup);
