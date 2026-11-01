@@ -6,7 +6,6 @@ import {
   Check,
   CheckCircle2,
   ChevronRight,
-  Clock3,
   Dumbbell,
   Flame,
   Home as HomeIcon,
