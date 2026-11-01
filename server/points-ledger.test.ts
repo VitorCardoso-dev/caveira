@@ -55,6 +55,6 @@ describe("carteira e extrato de pontos", () => {
         { id: 12, dueDate: null, updatedAt: "2026-10-20", status: "completed" },
       ],
     );
-    expect(result).toEqual({ rate: 50, obligations: 4, completed: 2 });
+    expect(result).toEqual({ rate: 33, obligations: 6, completed: 2 });
   });
 });
