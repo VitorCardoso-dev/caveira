@@ -144,12 +144,12 @@ async function reconcileMissedActivities(db: Db, userId: number, today: string) 
 function weekStartKey(today: string) { const date = new Date(`${today}T12:00:00Z`); date.setUTCDate(date.getUTCDate() - ((date.getUTCDay() + 6) % 7)); return date.toISOString().slice(0, 10); }
 function overdueLoss(category: string | null | undefined) { return -Math.max(2, Math.round(pointsForCategory(category) / 2)); }
 
-export function calculateGoalProgress(goal: { automationType: string; automationRefId: number | null; progress: number; target: number; automationStartDate: Date | string | null; createdAt: Date | string }, source: { habitCompletions: Array<{ habitId: number; day: Date | string; status: string }>; tasks: Array<{ status: string; updatedAt: Date | string; goalId?: number | null }>; focus: Array<{ durationMinutes: number; createdAt: Date | string }>; trainingDates: Array<Date | string>; nutritionDates: Array<Date | string> }, today: string) {
+export function calculateGoalProgress(goal: { automationType: string; automationRefId: number | null; goalId?: number; progress: number; target: number; automationStartDate: Date | string | null; createdAt: Date | string }, source: { habitCompletions: Array<{ habitId: number; day: Date | string; status: string }>; tasks: Array<{ status: string; updatedAt: Date | string; goalId?: number | null }>; focus: Array<{ durationMinutes: number; createdAt: Date | string }>; trainingDates: Array<Date | string>; nutritionDates: Array<Date | string> }, today: string) {
   const start = dateKey(goal.automationStartDate ?? goal.createdAt);
   const inRange = (value: Date | string | null | undefined) => { if (!value) return false; const day = dateKey(value); return day >= start && day <= today; };
   let progress = goal.progress;
   if (goal.automationType === "habit") progress = source.habitCompletions.filter(item => item.status === "completed" && item.habitId === goal.automationRefId && inRange(item.day)).length;
-  if (goal.automationType === "tasks") progress = source.tasks.filter(item => item.status === "completed" && inRange(item.updatedAt) && (goal.automationRefId == null || item.goalId === goal.automationRefId)).length;
+  if (goal.automationType === "tasks") { const linkedGoalId = goal.automationRefId ?? goal.goalId; progress = source.tasks.filter(item => item.status === "completed" && inRange(item.updatedAt) && (linkedGoalId == null || item.goalId === linkedGoalId)).length; }
   if (goal.automationType === "focus") progress = source.focus.filter(item => inRange(item.createdAt)).reduce((sum, item) => sum + item.durationMinutes, 0);
   if (goal.automationType === "training") progress = source.trainingDates.filter(inRange).length;
   if (goal.automationType === "nutrition") progress = source.nutritionDates.filter(inRange).length;
@@ -173,7 +173,7 @@ async function hydrateGoalProgress(db: Awaited<ReturnType<typeof requireDb>>, us
   return rows.map(goal => {
     const source = { habitCompletions: completions, tasks: taskRows, focus: focusRows, trainingDates: records.filter(item => item.module === "treinos").map(item => item.recordDate ?? item.createdAt), nutritionDates: records.filter(item => item.module === "alimentacao").map(item => item.recordDate ?? item.createdAt) };
     const sources = sourceRows.filter(item => item.goalId === goal.id);
-    const bounded = calculateWeightedGoalProgress(goal, source, sources, today);
+    const bounded = calculateWeightedGoalProgress({ ...goal, goalId: goal.id }, source, sources, today);
     return { ...goal, progress: bounded, computedStatus: goal.automationType !== "manual" && bounded >= goal.target ? "completed" : goal.status, isOverdue: Boolean(goal.deadline && dateKey(goal.deadline) < today && bounded < goal.target) };
   });
 }
@@ -532,7 +532,7 @@ export const appRouter = router({
         if (!ownHabit[0]) throw new TRPCError({ code: "BAD_REQUEST", message: "Escolha um hábito da sua conta para automatizar esta meta." });
       }
       const automationStartDate = input.automationType === "manual" ? null : ownGoal[0].automationType === input.automationType && ownGoal[0].automationStartDate ? ownGoal[0].automationStartDate : new Date();
-      await db.update(goals).set({ title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null, automationType: input.automationType, automationRefId: input.automationType === "habit" ? input.automationRefId ?? null : null, automationStartDate, status: input.status ?? "active" }).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)));
+      await db.update(goals).set({ title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null, automationType: input.automationType, automationRefId: input.automationType === "habit" ? input.automationRefId ?? null : input.automationType === "tasks" ? input.goalId : null, automationStartDate, status: input.status ?? "active" }).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)));
       if (input.sources) {
         await db.delete(goalSources).where(and(eq(goalSources.goalId, input.goalId), eq(goalSources.userId, ctx.user.id)));
         await db.insert(goalSources).values(input.sources.map(source => ({ userId: ctx.user.id, goalId: input.goalId, sourceType: source.sourceType, sourceId: source.sourceId ?? null, weightPercent: source.weightPercent })));
