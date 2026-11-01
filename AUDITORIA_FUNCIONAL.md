@@ -47,7 +47,10 @@ A rodada de estabilização foi executada sobre a `main` após a PR #5. O checkp
 
 ### Evidência automatizada
 
-A execução de qualidade no commit `7f6420ad93cb877fed4ffcad8bbc7b4cfaa9a34c` passou em todas as etapas: TypeScript, migrações em MySQL 8.4 descartável, testes automatizados e build de produção. Resultado: **13 arquivos de teste e 55 testes aprovados**.
+A execução de qualidade no commit `6cc5be73b975448f44b7b36f9ad26b317910a1a0` passou em todas as etapas: TypeScript, migrações em MySQL 8.4 descartável, testes automatizados e build de produção. Resultado: **13 arquivos de teste e 56 testes aprovados**.
+
+
+- O fechamento mensal agora inclui receitas, despesas, saldo financeiro e calorias registradas; esses dados também contam como atividade do período. Uma nota de desempenho não é gerada quando existem apenas registros financeiros/alimentares, sem dados comportamentais suficientes.
 
 ### Limites externos — não confundir com falhas da CI
 
