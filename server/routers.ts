@@ -702,13 +702,13 @@ export const appRouter = router({
     redeem: protectedProcedure.input(z.object({ rewardId: idSchema, idempotencyKey: z.string().trim().min(8).max(180) })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
       return db.transaction(async tx => {
-        const reward = await tx.select().from(rewards).where(and(eq(rewards.id, input.rewardId), eq(rewards.userId, ctx.user.id), eq(rewards.status, "active"))).limit(1);
-        if (!reward[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Recompensa não encontrada ou arquivada." });
         const existing = await tx.select({ id: pointTransactions.id, sourceType: pointTransactions.sourceType, sourceId: pointTransactions.sourceId, movementType: pointTransactions.movementType }).from(pointTransactions).where(and(eq(pointTransactions.userId, ctx.user.id), eq(pointTransactions.idempotencyKey, input.idempotencyKey))).limit(1);
         if (existing[0]) {
-          if (existing[0].sourceType === "reward" && existing[0].sourceId === reward[0].id && existing[0].movementType === "redemption") return { success: true, duplicate: true } as const;
+          if (existing[0].sourceType === "reward" && existing[0].sourceId === input.rewardId && existing[0].movementType === "redemption") return { success: true, duplicate: true } as const;
           throw new TRPCError({ code: "BAD_REQUEST", message: "Esta chave de resgate já foi utilizada em outra operação." });
         }
+        const reward = await tx.select().from(rewards).where(and(eq(rewards.id, input.rewardId), eq(rewards.userId, ctx.user.id), eq(rewards.status, "active"))).limit(1);
+        if (!reward[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Recompensa não encontrada ou arquivada." });
         const today = new Date();
         const occurrenceDate = new Date(`${today.toISOString().slice(0, 10)}T00:00:00.000Z`);
         const movement = await tx.insert(pointTransactions).values({ userId: ctx.user.id, points: -reward[0].costPoints, reason: `Resgate: ${reward[0].title}`, referenceId: reward[0].id, category: "Outros", movementType: "redemption", sourceType: "reward", sourceId: reward[0].id, occurrenceDate, idempotencyKey: input.idempotencyKey });
