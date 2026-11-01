@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateWalletBalance, summarizeLedgerPeriod } from "./points-ledger";
+import { calculateActivityTransition, calculateWalletBalance, summarizeLedgerPeriod } from "./points-ledger";
 
 describe("carteira e extrato de pontos", () => {
   it("reconstrói o saldo com créditos, débitos assinados e resgates legados", () => {
@@ -27,5 +27,12 @@ describe("carteira e extrato de pontos", () => {
     const rows = [{ movementType: "legacy", points: 7, occurrenceDate: null }];
     expect(summarizeLedgerPeriod(rows, "2026-10-26", "2026-11-01").spent).toBe(0);
     expect(calculateWalletBalance(rows)).toBe(-7);
+  });
+
+  it("reconcilia mudanças de estado uma vez e calcula apenas a diferença", () => {
+    expect(calculateActivityTransition(null, 0, "completed", 8)).toBe(8);
+    expect(calculateActivityTransition("completed", 8, "completed", 8)).toBeNull();
+    expect(calculateActivityTransition("missed", -4, "completed", 8)).toBe(12);
+    expect(calculateActivityTransition("completed", 8, "missed", -4)).toBe(-12);
   });
 });
