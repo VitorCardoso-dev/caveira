@@ -29,3 +29,29 @@ A superfície de autenticação passou visualmente nas três larguras. As rotas 
 ## Limitações ainda abertas
 
 A validação de interação autenticada não foi simulada nesta rodada: não foi inventado um usuário nem usado um fluxo de login sem autorização. A próxima evidência necessária é um click-through autenticado de criação de hábito, criação de meta automática, conclusão do hábito vinculado e confirmação do avanço do cartão.
+
+
+## Atualização de estabilização — 2026-11-01 (PR #6)
+
+A rodada de estabilização foi executada sobre a `main` após a PR #5. O checkpoint de código desta rodada está na PR [#6](https://github.com/VitorCardoso-dev/caveira/pull/6). O módulo Pomodoro/Foco não faz parte do produto ativo: a navegação principal já não o exibia. Nesta rodada também removi a rota/tela órfã do cliente e o indicador antigo do dashboard. Estruturas e endpoints legados no servidor/banco foram preservados por enquanto para não apagar histórico ou quebrar backups antigos; não são tratados como módulo ativo.
+
+### Correções desta rodada
+
+- Editar detalhes de uma meta sem enviar status preserva o status atual. O progresso manual conclui a meta pelo alvo configurado, não por um valor fixo.
+- O editor de metas não permite salvar enquanto as fontes persistidas estão carregando ou se a consulta falhou.
+- Os totais de receitas e despesas do módulo financeiro usam o mês corrente, no fuso de São Paulo.
+- Frequências semanal e personalizada foram desativadas temporariamente na criação e rejeitadas pelo servidor: o schema ainda não persiste dias/agenda suficientes para aplicar essas regras com segurança. Hábitos legados com essas frequências não recebem pontuação arbitrária; devem ser recriados como diários até a implementação da agenda.
+
+### Evidência automatizada
+
+A execução de qualidade no commit `6cc5be73b975448f44b7b36f9ad26b317910a1a0` passou em todas as etapas: TypeScript, migrações em MySQL 8.4 descartável, testes automatizados e build de produção. Resultado: **13 arquivos de teste e 56 testes aprovados**.
+
+
+- O fechamento mensal agora inclui receitas, despesas, saldo financeiro e calorias registradas; esses dados também contam como atividade do período. Uma nota de desempenho não é gerada quando existem apenas registros financeiros/alimentares, sem dados comportamentais suficientes.
+
+### Limites externos — não confundir com falhas da CI
+
+- O MySQL da CI é descartável; isso não prova que as migrações pendentes foram aplicadas no banco de produção.
+- Não foi executado deploy nem alterado banco real nesta rodada.
+- A revisão visual autenticada em navegador e a validação das credenciais/URLs reais de OAuth, banco e hospedagem dependem do ambiente publicado e de uma sessão autenticada.
+- Frequências semanal e personalizada permanecem como funcionalidade futura, explicitamente bloqueada para evitar registros com regras falsas.

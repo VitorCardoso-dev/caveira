@@ -6,7 +6,6 @@ import {
   Check,
   CheckCircle2,
   ChevronRight,
-  Clock3,
   Dumbbell,
   Flame,
   Home as HomeIcon,
@@ -141,7 +140,7 @@ function Metric({ label, value, detail, icon: Icon, accent = "default" }: { labe
   return <div className="metric-card"><div className={`metric-icon ${accent}`}><Icon size={17} /></div><div className="min-w-0"><p className="metric-label">{label}</p><p className="metric-value">{value}</p><p className="metric-detail">{detail}</p></div></div>;
 }
 
-function LifeChart({ points }: { points: Array<{ day: string; points: number; completedHabits: number; completedTasks: number; focusMinutes: number }> }) {
+function LifeChart({ points }: { points: Array<{ day: string; points: number; completedHabits: number; completedTasks: number }> }) {
   const min = Math.min(0, ...points.map(item => item.points));
   const max = Math.max(8, ...points.map(item => item.points));
   const range = max - min || 1;
@@ -185,7 +184,7 @@ export default function Home() {
         <main className="mx-auto max-w-[1440px] space-y-6 px-5 py-7 pb-28 sm:px-8 lg:py-9 lg:pb-12">
           <section className="grid gap-4 xl:grid-cols-[1.4fr_1fr]">
             <div className="hero-card"><div className="relative z-10 max-w-lg"><p className="eyebrow text-caveira-red">placar de hoje</p><div className="mt-3 flex items-end gap-3"><span className="font-display text-7xl font-black leading-none tracking-[-0.09em] sm:text-8xl">{data.score}</span><span className="mb-2 text-lg font-bold text-caveira-muted">%</span></div><p className="mt-4 max-w-sm text-sm leading-6 text-caveira-muted">A pontuação é calculada sobre hábitos concluídos hoje e tarefas já finalizadas.</p><div className="mt-6 flex flex-wrap gap-3"><button onClick={() => setDialog("habit")} className="button-primary"><Plus size={15} /> registrar hábito</button><button onClick={() => setDialog("task")} className="button-secondary">nova tarefa <ArrowUpRight size={15} /></button></div></div><div className="hero-grid" /><div className="hero-line" /></div>
-            <div className="grid grid-cols-2 gap-4"><Metric label="Consistência" value={`${data.streak} dias`} detail="sequência atual" icon={Flame} accent="red" /><Metric label="Hábitos" value={`${data.counts.completedHabitsToday}/${data.counts.habits}`} detail="concluídos hoje" icon={CheckCircle2} accent="green" /><Metric label="Prioridades" value={data.counts.openTasks} detail="tarefas abertas" icon={ListTodo} /><Metric label="Foco" value={`${data.counts.weeklyFocusMinutes}m`} detail="nos últimos 7 dias" icon={Clock3} /></div>
+            <div className="grid grid-cols-2 gap-4"><Metric label="Consistência" value={`${data.streak} dias`} detail="sequência atual" icon={Flame} accent="red" /><Metric label="Hábitos" value={`${data.counts.completedHabitsToday}/${data.counts.habits}`} detail="concluídos hoje" icon={CheckCircle2} accent="green" /><Metric label="Prioridades" value={data.counts.openTasks} detail="tarefas abertas" icon={ListTodo} /></div>
           </section>
           {points && <section className="panel-card"><div className="section-heading"><div><p className="eyebrow text-caveira-red">placar semanal · {points.start} até {points.today}</p><h2 className="section-title">Pontos reais, sem exagero</h2></div><span className="status-tag green">carteira {points.walletBalance} pts</span></div><div className="grid gap-3 sm:grid-cols-4"><Metric label="saldo semanal" value={`${points.net} pts`} detail="ganhos menos perdas" icon={Trophy} accent={points.net >= 0 ? "green" : "red"} /><Metric label="ganhos" value={`+${points.earned}`} detail="ações concluídas" icon={CheckCircle2} accent="green" /><Metric label="perdas" value={`-${points.lost}`} detail={`${points.breakdown.overdueTasks} prazos vencidos`} icon={ListTodo} accent="red" /><Metric label="cumprimento" value={`${points.completionRate}%`} detail="obrigações observadas" icon={Target} /></div><p className="mt-4 text-xs leading-5 text-caveira-muted">A pontuação nasce da categoria: Alimentação 8, Trabalho 7, Estudos/Financeiro 6, Físico/Saúde/Desenvolvimento 5, Hábitos/Mente/Relacionamentos 4 e Outros 3. No mesmo dia e categoria, a maior ação evita duplicidade entre hábito e tarefa.</p></section>}
 

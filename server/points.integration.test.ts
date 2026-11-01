@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { appRouter } from "./routers";
 import { getDb } from "./db";
-import { focusSessions, goals, habitCompletions, habits, pointTransactions, rewards, tasks, users } from "../drizzle/schema";
+import { focusSessions, goals, habitCompletions, habits, moduleRecords, pointTransactions, rewards, tasks, users } from "../drizzle/schema";
 
 const enabled = Boolean(process.env.DATABASE_URL);
 describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
@@ -100,6 +100,53 @@ describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
     const edited = (await db.select().from(tasks).where(eq(tasks.id, task.id)).limit(1))[0];
     expect(edited.status).toBe("completed");
     expect(edited.completedAt?.getTime()).toBe(completed.completedAt?.getTime());
+  });
+
+  it("registra pontos de metas no ledger e preserva o status ao editar", async () => {
+    const owner = await createUser();
+    const api = caller(owner);
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+
+    const goal = await api.goals.create({
+      title: "Meta pontuável", category: "Pessoal", target: 1, deadline: null,
+      automationType: "manual", automationRefId: null,
+      sources: [{ sourceType: "manual", sourceId: null, weightPercent: 100 }],
+    });
+    await api.goals.update({
+      goalId: goal.goalId, title: "Meta pontuável", category: "Pessoal", target: 1,
+      deadline: null, automationType: "manual", automationRefId: null,
+      status: "completed",
+    });
+    await api.goals.update({
+      goalId: goal.goalId, title: "Meta pontuável editada", category: "Pessoal", target: 1,
+      deadline: null, automationType: "manual", automationRefId: null,
+    });
+
+    const ledger = await db.select().from(pointTransactions).where(eq(pointTransactions.userId, owner.id));
+    expect(ledger.filter(row => row.sourceType === "goal" && row.points === 8)).toHaveLength(1);
+    
+    const weekly = await api.points.weekly({ today });
+    expect(weekly.earned).toBe(8);
+    expect(weekly.breakdown.goals).toBe(8);
+  });
+
+  it("inclui finanças e alimentação no fechamento mensal", async () => {
+    const owner = await createUser();
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+    const recordDate = new Date(`${today}T00:00:00.000Z`);
+    await db.insert(moduleRecords).values([
+      { userId: owner.id, module: "financas", title: "Salário", status: "active", numericValue: 0, amountCents: 250000, recordDate, details: JSON.stringify({ type: "income" }) },
+      { userId: owner.id, module: "financas", title: "Contas", status: "active", numericValue: 0, amountCents: 80000, recordDate, details: JSON.stringify({ type: "expense" }) },
+      { userId: owner.id, module: "alimentacao", title: "Almoço", status: "active", numericValue: 2100, amountCents: 0, recordDate, details: JSON.stringify({ mealType: "Almoço" }) },
+    ]);
+
+    const monthly = await caller(owner).reports.monthly({ today });
+    expect(monthly.hasData).toBe(true);
+    expect(monthly.summary.financeIncomeCents).toBe(250000);
+    expect(monthly.summary.financeExpensesCents).toBe(80000);
+    expect(monthly.summary.financeBalanceCents).toBe(170000);
+    expect(monthly.summary.nutritionCalories).toBe(2100);
+    expect(monthly.score).toBeNull();
   });
 
   it("migra o saldo legado uma única vez e o soma ao ledger novo", async () => {

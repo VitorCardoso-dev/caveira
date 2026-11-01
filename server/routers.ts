@@ -138,6 +138,15 @@ async function recordActivityOutcome(db: Db, input: ActivityOutcomeInput) {
   return db.transaction(tx => recordActivityOutcomeInTransaction(tx, input));
 }
 
+async function recordGoalCompletionInTransaction(tx: DbTransaction, userId: number, goalId: number) {
+  const idempotencyKey = `goal:${goalId}:completed:v1`;
+  await tx.insert(pointTransactions).values({
+    userId, points: POINTS.goalDone, reason: "Meta concluída", referenceId: goalId,
+    category: "Metas", movementType: "earned", sourceType: "goal", sourceId: goalId,
+    occurrenceDate: new Date(`${currentDayKey()}T00:00:00.000Z`), idempotencyKey,
+  }).onDuplicateKeyUpdate({ set: { idempotencyKey } });
+}
+
 async function ensureLegacyOpeningBalance(db: Db, userId: number) {
   const idempotencyKey = "legacy-opening-balance:v1";
   await db.transaction(async tx => {
@@ -310,7 +319,9 @@ const habitInput = z.object({
   name: z.string().trim().min(2).max(160),
   category: z.string().trim().max(80).optional(),
   isCorrosive: z.boolean().default(false),
-  frequency: z.enum(["daily", "weekly", "custom"]).default("daily"),
+  // Weekly/custom recurrence has no persisted schedule yet. Reject it until its
+  // calendar rules are implemented instead of accepting arbitrary completions.
+  frequency: z.literal("daily").default("daily"),
 });
 
 const taskInput = z.object({
@@ -412,11 +423,13 @@ export const appRouter = router({
         dedupedEarned += Math.max(...sameDayActions.map(item => item.points));
       }
       const taskLost = overdueTasks.reduce((sum, task) => sum + (-Math.max(2, Math.round(legacyPointsForCategory(task.category) / 2))), 0);
-      const goalEarned = goalRows.filter(goal => goal.status === "completed" && dateKey(goal.updatedAt) >= start && dateKey(goal.updatedAt) <= input.today).length * POINTS.goalDone;
+      const legacyGoalEarned = goalRows.filter(goal => goal.status === "completed" && dateKey(goal.updatedAt) >= start && dateKey(goal.updatedAt) <= input.today && dateKey(goal.updatedAt) < NEW_SCORING_START).length * POINTS.goalDone;
       const focusEarned = Math.min(5, Math.floor(focusRows.filter(session => dateKey(session.createdAt) >= start && dateKey(session.createdAt) <= input.today).reduce((sum, session) => sum + session.durationMinutes, 0) / 25)) * POINTS.focusBlock;
       const newLedgerRows = spendingRows.filter(row => row.movementType !== "legacy" && row.occurrenceDate && dateKey(row.occurrenceDate) >= start && dateKey(row.occurrenceDate) <= input.today);
       const ledgerPeriod = summarizeLedgerPeriod(spendingRows, start, input.today);
-      const earned = Math.max(0, dedupedEarned + goalEarned + focusEarned) + ledgerPeriod.earned;
+      const goalLedgerEarned = newLedgerRows.filter(row => row.sourceType === "goal" && row.points > 0).reduce((sum, row) => sum + row.points, 0);
+      const goalEarned = legacyGoalEarned + goalLedgerEarned;
+      const earned = Math.max(0, dedupedEarned + legacyGoalEarned + focusEarned) + ledgerPeriod.earned;
       const lost = Math.abs(habitMissed + taskLost) + ledgerPeriod.lost;
       const spent = ledgerPeriod.spent;
       const net = earned - lost - spent;
@@ -540,8 +553,9 @@ export const appRouter = router({
     toggleToday: protectedProcedure.input(z.object({ habitId: idSchema, day: daySchema, completed: z.boolean() })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
       if (input.day > currentDayKey()) throw new TRPCError({ code: "BAD_REQUEST", message: "Não é possível registrar um hábito em uma data futura." });
-      const ownHabit = await db.select({ id: habits.id, category: habits.category, isCorrosive: habits.isCorrosive }).from(habits).where(and(eq(habits.id, input.habitId), eq(habits.userId, ctx.user.id))).limit(1);
+      const ownHabit = await db.select({ id: habits.id, category: habits.category, isCorrosive: habits.isCorrosive, frequency: habits.frequency }).from(habits).where(and(eq(habits.id, input.habitId), eq(habits.userId, ctx.user.id))).limit(1);
       if (!ownHabit[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Hábito não encontrado." });
+      if (ownHabit[0].frequency !== "daily") throw new TRPCError({ code: "BAD_REQUEST", message: "A recorrência deste hábito ainda não está disponível para marcação. Recrie-o como diário por enquanto." });
       const day = new Date(`${input.day}T00:00:00.000Z`);
       await db.transaction(async tx => {
         const existing = await tx.select().from(habitCompletions).where(and(eq(habitCompletions.habitId, input.habitId), eq(habitCompletions.userId, ctx.user.id), eq(habitCompletions.day, day))).limit(1);
@@ -627,7 +641,7 @@ export const appRouter = router({
     }),
     update: protectedProcedure.input(goalInput.extend({ goalId: idSchema, status: z.enum(["active", "completed", "paused"]).optional() })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
-      const ownGoal = await db.select({ id: goals.id, automationType: goals.automationType, automationStartDate: goals.automationStartDate }).from(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id))).limit(1);
+      const ownGoal = await db.select({ id: goals.id, status: goals.status, automationType: goals.automationType, automationStartDate: goals.automationStartDate }).from(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id))).limit(1);
       if (!ownGoal[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Meta não encontrada." });
       await validateGoalSources(db, ctx.user.id, input.sources);
       if (input.automationType === "habit") {
@@ -636,7 +650,9 @@ export const appRouter = router({
       }
       const automationStartDate = input.automationType === "manual" ? null : ownGoal[0].automationType === input.automationType && ownGoal[0].automationStartDate ? ownGoal[0].automationStartDate : new Date();
       return db.transaction(async tx => {
-        await tx.update(goals).set({ title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null, automationType: input.automationType, automationRefId: input.automationType === "habit" ? input.automationRefId ?? null : input.automationType === "tasks" ? input.goalId : null, automationStartDate, status: input.status ?? "active" }).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)));
+        const nextStatus = input.status ?? ownGoal[0].status;
+        await tx.update(goals).set({ title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null, automationType: input.automationType, automationRefId: input.automationType === "habit" ? input.automationRefId ?? null : input.automationType === "tasks" ? input.goalId : null, automationStartDate, status: nextStatus }).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)));
+        if (ownGoal[0].status !== "completed" && nextStatus === "completed") await recordGoalCompletionInTransaction(tx, ctx.user.id, input.goalId);
         if (input.sources) {
           await tx.delete(goalSources).where(and(eq(goalSources.goalId, input.goalId), eq(goalSources.userId, ctx.user.id)));
           await tx.insert(goalSources).values(input.sources.map(source => ({ userId: ctx.user.id, goalId: input.goalId, sourceType: source.sourceType, sourceId: source.sourceId ?? null, weightPercent: source.weightPercent })));
@@ -661,10 +677,14 @@ export const appRouter = router({
     }),
     updateProgress: protectedProcedure.input(z.object({ goalId: idSchema, progress: z.number().int().min(0).max(1000000) })).mutation(async ({ ctx, input }) => {
       const db = await requireDb();
-      const existing = await db.select({ automationType: goals.automationType }).from(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id))).limit(1);
+      const existing = await db.select({ automationType: goals.automationType, status: goals.status, target: goals.target }).from(goals).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id))).limit(1);
       if (!existing[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Meta não encontrada." });
       if (existing[0].automationType !== "manual") throw new TRPCError({ code: "BAD_REQUEST", message: "O progresso desta meta é atualizado pelos registros reais." });
-      await db.update(goals).set({ progress: input.progress, status: input.progress >= 100 ? "completed" : "active" }).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)));
+      const nextStatus = input.progress >= existing[0].target ? "completed" : "active";
+      await db.transaction(async tx => {
+        await tx.update(goals).set({ progress: input.progress, status: nextStatus }).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)));
+        if (existing[0].status !== "completed" && nextStatus === "completed") await recordGoalCompletionInTransaction(tx, ctx.user.id, input.goalId);
+      });
       return { success: true } as const;
     }),
     delete: protectedProcedure.input(z.object({ goalId: idSchema })).mutation(async ({ ctx, input }) => {
@@ -954,18 +974,25 @@ export const appRouter = router({
     }),
     monthly: protectedProcedure.input(z.object({ today: daySchema })).query(async ({ ctx, input }) => {
       const db = await requireDb();
-      const [habitRows, completionRows, taskRows, goalRows, sessions, pointRows] = await Promise.all([
+      const [habitRows, completionRows, taskRows, goalRows, sessions, pointRows, moduleRecordRows] = await Promise.all([
         db.select().from(habits).where(eq(habits.userId, ctx.user.id)),
         db.select().from(habitCompletions).where(and(eq(habitCompletions.userId, ctx.user.id), eq(habitCompletions.status, "completed"))),
         db.select().from(tasks).where(eq(tasks.userId, ctx.user.id)),
         db.select().from(goals).where(eq(goals.userId, ctx.user.id)),
         db.select().from(trainingSessions).where(and(eq(trainingSessions.userId, ctx.user.id), eq(trainingSessions.status, "completed"))),
         db.select().from(pointTransactions).where(eq(pointTransactions.userId, ctx.user.id)),
+        db.select().from(moduleRecords).where(and(eq(moduleRecords.userId, ctx.user.id), ne(moduleRecords.module, "recompensas"))),
       ]);
       const windows = getReportWindows(input.today);
       const month = windows.month;
       const currentDay = windows.monthDays;
       const inMonth = (value: Date | string | null) => isWithinReportPeriod(value, windows.monthStart, input.today);
+      const monthRecords = moduleRecordRows.filter(record => inMonth(record.recordDate ?? record.createdAt));
+      const financeRecords = monthRecords.filter(record => record.module === "financas");
+      const nutritionRecords = monthRecords.filter(record => record.module === "alimentacao");
+      const financeIncome = financeRecords.filter(record => decodeDetails(record.details).type === "income").reduce((sum, record) => sum + Math.abs(record.amountCents), 0);
+      const financeExpenses = financeRecords.filter(record => decodeDetails(record.details).type !== "income").reduce((sum, record) => sum + Math.abs(record.amountCents), 0);
+      const nutritionCalories = nutritionRecords.reduce((sum, record) => sum + Math.max(0, record.numericValue), 0);
       const completedTasks = taskRows.filter(task => task.status === "completed" && task.completedAt && inMonth(task.completedAt));
       const monthTasksCreated = taskRows.filter(task => inMonth(task.createdAt));
       const completedMonthTasks = monthTasksCreated.filter(task => task.status === "completed" && task.completedAt && inMonth(task.completedAt));
@@ -976,6 +1003,8 @@ export const appRouter = router({
       completedTasks.forEach(task => activeDays.add(dateKey(task.completedAt!)));
       monthCompletions.forEach(item => activeDays.add(dateKey(item.day)));
       monthSessions.forEach(item => activeDays.add(dateKey(item.sessionDate)));
+      const behaviorActiveDays = new Set(activeDays);
+      monthRecords.filter(record => record.module === "financas" || record.module === "alimentacao").forEach(record => activeDays.add(dateKey(record.recordDate ?? record.createdAt)));
       const daily = windows.monthToDateDays.map(day => ({
         day,
         points: sumLedgerPointsForDay(pointRows, day),
@@ -998,17 +1027,20 @@ export const appRouter = router({
         addArea(habit.category ?? "Hábitos", Math.min(totalDays, completed), totalDays);
       }
       const areas = [...areaMap.entries()].map(([category, value]) => { const rate = value.total ? Math.round((value.completed / value.total) * 100) : 0; const rating = rate >= 85 ? "Excelente" : rate >= 70 ? "Bom" : rate >= 50 ? "Regular" : "Precisa melhorar"; return { category, ...value, rate, rating }; }).sort((a, b) => b.rate - a.rate || b.completed - a.completed);
-      const hasData = activeDays.size > 0 || monthTasksCreated.length > 0 || monthGoals.length > 0 || monthSessions.length > 0;
+      const hasData = activeDays.size > 0 || monthTasksCreated.length > 0 || monthGoals.length > 0 || monthSessions.length > 0 || monthRecords.length > 0;
       const bestArea = areas[0] ?? null;
       const attentionArea = areas.length > 1 ? areas[areas.length - 1] : null;
-      const scoreMetrics = [currentDay ? Math.round((activeDays.size / currentDay) * 100) : null, monthTasksCreated.length ? Math.round((completedMonthTasks.length / monthTasksCreated.length) * 100) : null, areas.length ? Math.round(areas.reduce((sum, area) => sum + area.rate, 0) / areas.length) : null].filter((value): value is number => value !== null);
+      const hasBehaviorData = monthTasksCreated.length > 0 || monthCompletions.length > 0 || monthSessions.length > 0 || areas.length > 0;
+      const scoreMetrics = hasBehaviorData
+        ? [currentDay ? Math.round((behaviorActiveDays.size / currentDay) * 100) : null, monthTasksCreated.length ? Math.round((completedMonthTasks.length / monthTasksCreated.length) * 100) : null, areas.length ? Math.round(areas.reduce((sum, area) => sum + area.rate, 0) / areas.length) : null].filter((value): value is number => value !== null)
+        : [];
       const scoreValue = scoreMetrics.length ? Math.max(0, Math.min(100, Math.round(scoreMetrics.reduce((sum, value) => sum + value, 0) / scoreMetrics.length))) : null;
       const scoreLabel = scoreValue === null ? "Dados insuficientes" : scoreValue >= 85 ? "Excelente" : scoreValue >= 70 ? "Bom" : scoreValue >= 50 ? "Regular" : "Precisa melhorar";
       return {
         month,
         period: { start: `${month}-01`, end: input.today, type: "month_to_date" },
         hasData,
-        summary: { consistency: currentDay ? Math.round((activeDays.size / currentDay) * 100) : 0, activeDays: activeDays.size, completedTasks: completedTasks.length, tasksCreated: monthTasksCreated.length, tasksCompletedFromCreated: completedMonthTasks.length, trainingSessions: monthSessions.length, accompaniedGoals: monthGoals.length },
+        summary: { consistency: currentDay ? Math.round((activeDays.size / currentDay) * 100) : 0, activeDays: activeDays.size, completedTasks: completedTasks.length, tasksCreated: monthTasksCreated.length, tasksCompletedFromCreated: completedMonthTasks.length, trainingSessions: monthSessions.length, accompaniedGoals: monthGoals.length, financeIncomeCents: financeIncome, financeExpensesCents: financeExpenses, financeBalanceCents: financeIncome - financeExpenses, nutritionCalories },
         score: scoreValue === null ? null : { value: scoreValue, label: scoreLabel, criteria: "Média de consistência, conclusão de tarefas e desempenho médio das áreas registradas." },
         daily,
         areas,
