@@ -1139,10 +1139,23 @@ export const appRouter = router({
         }
         for (const row of payload.pointTransactions) {
           const reason = requiredString(row, "reason", "Pontuação");
+          const sourceType = optionalString(row, "sourceType");
+          const oldSourceId = optionalNumber(row, "sourceId");
+          const sourceId = oldSourceId === null ? null
+            : sourceType === "habit" ? maps.habits.get(oldSourceId) ?? null
+            : sourceType === "task" ? maps.tasks.get(oldSourceId) ?? null
+            : sourceType === "reward" ? maps.rewards.get(oldSourceId) ?? null
+            : oldSourceId;
           const oldRef = optionalNumber(row, "referenceId");
-          const referenceId = remapPointReference(reason, oldRef, maps);
+          const referenceId = sourceType === "reward" && oldRef !== null
+            ? maps.rewards.get(oldRef) ?? null
+            : sourceType === "habit" && oldRef !== null
+              ? maps.habits.get(oldRef) ?? null
+              : sourceType === "task" && oldRef !== null
+                ? maps.tasks.get(oldRef) ?? null
+                : remapPointReference(reason, oldRef, maps);
           const oldActivityId = optionalNumber(row, "activityId");
-          const inserted = await tx.insert(pointTransactions).values({ userId, points: requiredNumber(row, "points", "Pontuação"), reason, referenceId, activityId: oldActivityId === null ? null : maps.pointActivities.get(oldActivityId) ?? null, category: text(row, "category", "Pontuação", "Outros"), movementType: enumValue(row, "movementType", ["legacy", "earned", "missed", "corrosive_missed", "redemption", "adjustment"] as const, "legacy"), sourceType: optionalString(row, "sourceType"), sourceId: optionalNumber(row, "sourceId"), occurrenceDate: date(row, "occurrenceDate", "Pontuação", true), idempotencyKey: optionalString(row, "idempotencyKey") });
+          const inserted = await tx.insert(pointTransactions).values({ userId, points: requiredNumber(row, "points", "Pontuação"), reason, referenceId, activityId: oldActivityId === null ? null : maps.pointActivities.get(oldActivityId) ?? null, category: text(row, "category", "Pontuação", "Outros"), movementType: enumValue(row, "movementType", ["legacy", "earned", "missed", "corrosive_missed", "redemption", "adjustment"] as const, "legacy"), sourceType, sourceId, occurrenceDate: date(row, "occurrenceDate", "Pontuação", true), idempotencyKey: optionalString(row, "idempotencyKey") });
           maps.pointTransactions.set(rowId(row, "Pontuação"), Number(inserted[0].insertId)); count.pointTransactions += 1;
         }
         for (const row of payload.rewardRedemptions) {
