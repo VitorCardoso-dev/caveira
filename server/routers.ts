@@ -860,7 +860,7 @@ export const appRouter = router({
       const dailyStats = Array.from({ length: 14 }, (_, index) => {
         const dayDate = new Date(chartEnd);
         dayDate.setUTCHours(12, 0, 0, 0);
-        dayDate.setDate(dayDate.getDate() - (13 - index));
+        dayDate.setUTCDate(dayDate.getUTCDate() - (13 - index));
         const day = dayDate.toISOString().slice(0, 10);
         const dayHabits = completionRows.filter(item => dateKey(item.day) === day);
         const dayTasks = taskRows.filter(item => item.status === "completed" && dateKey(item.updatedAt) === day);
@@ -900,6 +900,7 @@ export const appRouter = router({
       const currentDay = Number(input.today.slice(8, 10));
       const inMonth = (value: Date | string | null) => Boolean(value && dateKey(value).startsWith(month));
       const completedTasks = taskRows.filter(task => task.status === "completed" && inMonth(task.updatedAt));
+      const completedMonthTasks = monthTasksCreated.filter(task => task.status === "completed" && inMonth(task.updatedAt));
       const monthCompletions = completionRows.filter(item => inMonth(item.day));
       const monthSessions = sessions.filter(item => inMonth(item.sessionDate));
       const monthTasksCreated = taskRows.filter(task => inMonth(task.createdAt));
@@ -932,10 +933,17 @@ export const appRouter = router({
         areaMap.set(category, current);
       };
       for (const task of monthTasksCreated) addArea(task.category, task.status === "completed" && inMonth(task.updatedAt) ? 1 : 0, 1);
-      for (const item of monthCompletions) addArea(habitRows.find(habit => habit.id === item.habitId)?.category ?? "Hábitos", 1, 1);
-      if (monthSessions.length) addArea("Físico", monthSessions.length, monthSessions.length);
+      const monthDays = Number(input.today.slice(8, 10));
+      for (const habit of habitRows.filter(row => row.frequency === "daily")) {
+        const createdDay = dateKey(habit.createdAt);
+        const firstDay = createdDay.startsWith(month) ? Number(createdDay.slice(8, 10)) : 1;
+        const totalDays = Math.max(0, monthDays - firstDay + 1);
+        if (!totalDays) continue;
+        const completed = new Set(monthCompletions.filter(item => item.habitId === habit.id).map(item => dateKey(item.day))).size;
+        addArea(habit.category ?? "Hábitos", Math.min(totalDays, completed), totalDays);
+      }
       const areas = [...areaMap.entries()].map(([category, value]) => { const rate = value.total ? Math.round((value.completed / value.total) * 100) : 0; const rating = rate >= 85 ? "Excelente" : rate >= 70 ? "Bom" : rate >= 50 ? "Regular" : "Precisa melhorar"; return { category, ...value, rate, rating }; }).sort((a, b) => b.rate - a.rate || b.completed - a.completed);
-      const hasData = activeDays.size > 0 || monthTasksCreated.length > 0 || monthGoals.length > 0;
+      const hasData = activeDays.size > 0 || monthTasksCreated.length > 0 || monthGoals.length > 0 || monthSessions.length > 0;
       const bestArea = areas[0] ?? null;
       const attentionArea = areas.length > 1 ? areas[areas.length - 1] : null;
       const scoreMetrics = [currentDay ? Math.round((activeDays.size / currentDay) * 100) : null, monthTasksCreated.length ? Math.round((completedTasks.length / monthTasksCreated.length) * 100) : null, areas.length ? Math.round(areas.reduce((sum, area) => sum + area.rate, 0) / areas.length) : null].filter((value): value is number => value !== null);
@@ -945,7 +953,7 @@ export const appRouter = router({
         month,
         period: { start: `${month}-01`, end: input.today, type: "month_to_date" },
         hasData,
-        summary: { consistency: currentDay ? Math.round((activeDays.size / currentDay) * 100) : 0, activeDays: activeDays.size, completedTasks: completedTasks.length, accompaniedGoals: monthGoals.length },
+        summary: { consistency: currentDay ? Math.round((activeDays.size / currentDay) * 100) : 0, activeDays: activeDays.size, completedTasks: completedTasks.length, tasksCreated: monthTasksCreated.length, tasksCompletedFromCreated: completedMonthTasks.length, trainingSessions: monthSessions.length, accompaniedGoals: monthGoals.length },
         score: scoreValue === null ? null : { value: scoreValue, label: scoreLabel, criteria: "Média de consistência, conclusão de tarefas e desempenho médio das áreas registradas." },
         daily,
         areas,
