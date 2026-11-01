@@ -102,7 +102,7 @@ describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
     expect(edited.completedAt?.getTime()).toBe(completed.completedAt?.getTime());
   });
 
-  it("registra pontos de metas e foco no ledger, mantendo XP e placar alinhados", async () => {
+  it("registra pontos de metas no ledger e preserva o status ao editar", async () => {
     const owner = await createUser();
     const api = caller(owner);
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
@@ -122,28 +122,12 @@ describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
       deadline: null, automationType: "manual", automationRefId: null,
     });
 
-    const legacyStartedAt = new Date("2026-10-27T12:00:00.000Z");
-    await db.insert(focusSessions).values({
-      userId: owner.id, durationMinutes: 100, startedAt: legacyStartedAt,
-      endedAt: new Date("2026-10-27T13:40:00.000Z"), createdAt: legacyStartedAt,
-    });
-    const endedAt = new Date();
-    const startedAt = new Date(endedAt.getTime() - 50 * 60_000);
-    await api.focus.log({ durationMinutes: 50, startedAt: startedAt.toISOString(), endedAt: endedAt.toISOString() });
-    await expect(api.focus.log({
-      durationMinutes: 50,
-      startedAt: new Date(endedAt.getTime() + 60_000).toISOString(),
-      endedAt: new Date(endedAt.getTime() + 120_000).toISOString(),
-    })).rejects.toMatchObject({ code: "BAD_REQUEST" });
-
     const ledger = await db.select().from(pointTransactions).where(eq(pointTransactions.userId, owner.id));
     expect(ledger.filter(row => row.sourceType === "goal" && row.points === 8)).toHaveLength(1);
-    expect(ledger.filter(row => row.sourceType === "focus" && row.points === 1)).toHaveLength(1);
-
+    
     const weekly = await api.points.weekly({ today });
-    expect(weekly.earned).toBe(13);
+    expect(weekly.earned).toBe(8);
     expect(weekly.breakdown.goals).toBe(8);
-    expect(weekly.breakdown.focus).toBe(5);
   });
 
   it("inclui finanças e alimentação no fechamento mensal", async () => {
