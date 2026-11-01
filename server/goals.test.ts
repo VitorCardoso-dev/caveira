@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateGoalProgress } from "./routers";
+import { calculateGoalProgress, calculateWeightedGoalProgress } from "./routers";
 
 const date = (value: string) => new Date(`${value}T12:00:00.000Z`);
 const empty = { habitCompletions: [], tasks: [], focus: [], trainingDates: [], nutritionDates: [] };
@@ -28,5 +28,13 @@ describe("metas automáticas", () => {
 
   it("mantém metas manuais sob controle do usuário", () => {
     expect(calculateGoalProgress({ automationType: "manual", automationRefId: null, progress: 7, target: 10, automationStartDate: null, createdAt: date("2026-10-01") }, empty, "2026-10-10")).toBe(7);
+  });
+
+  it("calcula fonte única e múltiplas fontes sem duplicar contribuições", () => {
+    const goal = { automationType: "tasks", automationRefId: null, progress: 40, target: 100, automationStartDate: date("2026-10-01"), createdAt: date("2026-10-01") };
+    const source = { ...empty, tasks: [{ status: "completed", updatedAt: date("2026-10-02") }], focus: [{ durationMinutes: 60, createdAt: date("2026-10-03") }] };
+    expect(calculateWeightedGoalProgress(goal, source, [{ sourceType: "tasks", sourceId: null, weightPercent: 100 }], "2026-10-10")).toBe(1);
+    expect(calculateWeightedGoalProgress(goal, source, [{ sourceType: "tasks", sourceId: null, weightPercent: 50 }, { sourceType: "focus", sourceId: null, weightPercent: 50 }], "2026-10-10")).toBe(31);
+    expect(calculateWeightedGoalProgress({ ...goal, automationType: "manual" }, empty, [{ sourceType: "manual", sourceId: null, weightPercent: 100 }], "2026-10-10")).toBe(40);
   });
 });
