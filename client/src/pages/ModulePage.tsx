@@ -202,7 +202,7 @@ function PhaseTwoWorkspace({ module }: { module: "habitos" | "tarefas" | "metas"
   const [automationRefId, setAutomationRefId] = useState("");
   const [taskGoalId, setTaskGoalId] = useState("");
   const [isCorrosive, setIsCorrosive] = useState(false);
-  const [frequency, setFrequency] = useState<"daily" | "weekly" | "custom">("daily");
+  const [frequency, setFrequency] = useState<"daily">("daily");
   const meta = titles[module];
   const selectedCategoryPoints = category ? ({ "Alimentação": 12, "Trabalho": 14, "Estudos": 10, "Financeiro": 14, "Físico": 8, "Saúde": 8, "Desenvolvimento pessoal": 10, "Hábitos": 6, "Mente": 6, "Relacionamentos": 6, "Outros": 4 } as Record<string, number>)[category] ?? 4 : 0;
 
