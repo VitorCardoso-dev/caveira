@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { appRouter } from "./routers";
 import { getDb } from "./db";
-import { focusSessions, goals, habitCompletions, habits, pointTransactions, rewards, tasks, users } from "../drizzle/schema";
+import { focusSessions, goals, habitCompletions, habits, moduleRecords, pointTransactions, rewards, tasks, users } from "../drizzle/schema";
 
 const enabled = Boolean(process.env.DATABASE_URL);
 describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
@@ -144,6 +144,24 @@ describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
     expect(weekly.earned).toBe(13);
     expect(weekly.breakdown.goals).toBe(8);
     expect(weekly.breakdown.focus).toBe(5);
+  });
+
+  it("inclui finanças e alimentação no fechamento mensal", async () => {
+    const owner = await createUser();
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+    const recordDate = new Date(`${today}T00:00:00.000Z`);
+    await db.insert(moduleRecords).values([
+      { userId: owner.id, module: "financas", title: "Salário", status: "active", numericValue: 0, amountCents: 250000, recordDate, details: JSON.stringify({ type: "income" }) },
+      { userId: owner.id, module: "financas", title: "Contas", status: "active", numericValue: 0, amountCents: 80000, recordDate, details: JSON.stringify({ type: "expense" }) },
+      { userId: owner.id, module: "alimentacao", title: "Almoço", status: "active", numericValue: 2100, amountCents: 0, recordDate, details: JSON.stringify({ mealType: "Almoço" }) },
+    ]);
+
+    const monthly = await caller(owner).reports.monthly({ today });
+    expect(monthly.hasData).toBe(true);
+    expect(monthly.summary.financeIncomeCents).toBe(250000);
+    expect(monthly.summary.financeExpensesCents).toBe(80000);
+    expect(monthly.summary.financeBalanceCents).toBe(170000);
+    expect(monthly.summary.nutritionCalories).toBe(2100);
   });
 
   it("migra o saldo legado uma única vez e o soma ao ledger novo", async () => {
