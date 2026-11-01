@@ -1,6 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { randomUUID } from "node:crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, lt } from "drizzle-orm";
 import { z } from "zod";
 import {
   auditLogs,
@@ -307,6 +307,15 @@ export const appRouter = router({
   }),
 
   points: router({
+    history: protectedProcedure.input(z.object({ cursor: idSchema.optional(), limit: z.number().int().min(1).max(100).default(50) })).query(async ({ ctx, input }) => {
+      const db = await requireDb();
+      const filters = [eq(pointTransactions.userId, ctx.user.id)];
+      if (input.cursor) filters.push(lt(pointTransactions.id, input.cursor));
+      const rows = await db.select().from(pointTransactions).where(and(...filters)).orderBy(desc(pointTransactions.id)).limit(input.limit + 1);
+      const hasMore = rows.length > input.limit;
+      const items = hasMore ? rows.slice(0, input.limit) : rows;
+      return { items, nextCursor: hasMore ? items[items.length - 1]?.id ?? null : null };
+    }),
     weekly: protectedProcedure.input(z.object({ today: daySchema })).query(async ({ ctx, input }) => {
       const db = await requireDb();
       const start = weekStartKey(input.today);
