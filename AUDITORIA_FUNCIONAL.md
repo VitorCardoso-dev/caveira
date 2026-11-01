@@ -33,7 +33,7 @@ A validação de interação autenticada não foi simulada nesta rodada: não fo
 
 ## Atualização de estabilização — 2026-11-01 (PR #6)
 
-A rodada de estabilização foi executada sobre a `main` após a PR #5. O checkpoint de código desta rodada está na PR [#6](https://github.com/VitorCardoso-dev/caveira/pull/6). O módulo Pomodoro/Foco foi retirado do escopo desta rodada porque não faz parte da navegação atual do produto.
+A rodada de estabilização foi executada sobre a `main` após a PR #5. O checkpoint de código desta rodada está na PR [#6](https://github.com/VitorCardoso-dev/caveira/pull/6). O módulo Pomodoro/Foco não faz parte do produto ativo: a navegação principal já não o exibia. Nesta rodada também removi a rota/tela órfã do cliente e o indicador antigo do dashboard. Estruturas e endpoints legados no servidor/banco foram preservados por enquanto para não apagar histórico ou quebrar backups antigos; não são tratados como módulo ativo.
 
 ### Correções desta rodada
 
