@@ -588,6 +588,7 @@ export const appRouter = router({
       const db = await requireDb();
       const ownTask = await db.select({ id: tasks.id, dueDate: tasks.dueDate, status: tasks.status, category: tasks.category, isCorrosive: tasks.isCorrosive }).from(tasks).where(and(eq(tasks.id, input.taskId), eq(tasks.userId, ctx.user.id))).limit(1);
       if (!ownTask[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Tarefa não encontrada." });
+      if (input.today && input.today > currentDayKey()) throw new TRPCError({ code: "BAD_REQUEST", message: "Não é possível concluir uma tarefa em uma data futura." });
       const today = currentDayKey();
       if (input.completed && ownTask[0].dueDate && dateKey(ownTask[0].dueDate) < today) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "O prazo desta tarefa já terminou e ela foi considerada não concluída." });
