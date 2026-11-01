@@ -221,8 +221,8 @@ function PhaseTwoWorkspace({ module }: { module: "habitos" | "tarefas" | "metas"
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!title.trim()) return;
-    if (module === "metas" && editingGoalId && goalSourcesQuery.isFetching) {
-      toast.error("Aguarde o carregamento das fontes desta meta antes de salvar.");
+    if (module === "metas" && editingGoalId && (goalSourcesQuery.isFetching || goalSourcesQuery.isError)) {
+      toast.error(goalSourcesQuery.isError ? "Não foi possível carregar as fontes desta meta. Tente novamente antes de salvar." : "Aguarde o carregamento das fontes desta meta antes de salvar.");
       return;
     }
     try {
