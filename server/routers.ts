@@ -848,7 +848,7 @@ export const appRouter = router({
       for (const task of monthTasksCreated) addArea(task.category, task.status === "completed" && inMonth(task.updatedAt) ? 1 : 0, 1);
       for (const item of monthCompletions) addArea(habitRows.find(habit => habit.id === item.habitId)?.category ?? "Hábitos", 1, 1);
       if (monthSessions.length) addArea("Físico", monthSessions.length, monthSessions.length);
-      const areas = [...areaMap.entries()].map(([category, value]) => ({ category, ...value, rate: value.total ? Math.round((value.completed / value.total) * 100) : 0 })).sort((a, b) => b.rate - a.rate || b.completed - a.completed);
+      const areas = [...areaMap.entries()].map(([category, value]) => { const rate = value.total ? Math.round((value.completed / value.total) * 100) : 0; const rating = rate >= 85 ? "Excelente" : rate >= 70 ? "Bom" : rate >= 50 ? "Regular" : "Precisa melhorar"; return { category, ...value, rate, rating }; }).sort((a, b) => b.rate - a.rate || b.completed - a.completed);
       const hasData = activeDays.size > 0 || monthTasksCreated.length > 0 || monthGoals.length > 0;
       const bestArea = areas[0] ?? null;
       const attentionArea = areas.length > 1 ? areas[areas.length - 1] : null;
