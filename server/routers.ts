@@ -1090,7 +1090,7 @@ export const appRouter = router({
         goalSources: goalSourceRows,
         focusSessions: focusRows,
         pointActivities: activityRows,
-        pointTransactions: pointRows,
+        pointTransactions: pointRows.filter(row => row.idempotencyKey !== "legacy-opening-balance:v1"),
         auditLogs: auditRows,
         rewards: rewardRows,
         rewardRedemptions: redemptionRows,
@@ -1213,6 +1213,7 @@ export const appRouter = router({
           await tx.insert(trainingSets).values({ userId, sessionId, exerciseId, setNumber: Math.max(1, number(row, "setNumber", 1)), plannedReps: Math.max(1, number(row, "plannedReps", 1)), plannedWeightKg: Math.max(0, number(row, "plannedWeightKg")), actualReps: Math.max(0, number(row, "actualReps")), actualWeightKg: Math.max(0, number(row, "actualWeightKg")), completed: bool(row, "completed"), completedAt: date(row, "completedAt", "Série" ) }); count.trainingSets += 1;
         }
         for (const row of payload.pointTransactions) {
+          if (optionalString(row, "idempotencyKey") === "legacy-opening-balance:v1") continue;
           const reason = requiredString(row, "reason", "Pontuação");
           const sourceType = optionalString(row, "sourceType");
           const oldSourceId = optionalNumber(row, "sourceId");
@@ -1245,6 +1246,7 @@ export const appRouter = router({
           const mapping = entity === "treinos" ? maps.sessions : entity === "tasks" ? maps.tasks : entity === "module_records" ? maps.records : entity === "habits" ? maps.habits : entity === "goals" ? maps.goals : null;
           await tx.insert(auditLogs).values({ userId, action: requiredString(row, "action", "Log de auditoria"), entity, entityId: oldEntityId !== null && mapping ? mapping.get(oldEntityId) ?? null : null, beforeData: optionalString(row, "beforeData"), afterData: optionalString(row, "afterData") }); count.auditLogs += 1;
         }
+        await tx.delete(pointTransactions).where(and(eq(pointTransactions.userId, userId), eq(pointTransactions.idempotencyKey, "legacy-opening-balance:v1")));
         if (payload.settings) {
           const current = await tx.select({ id: userSettings.id }).from(userSettings).where(eq(userSettings.userId, userId)).limit(1);
           if (!current[0]) {
