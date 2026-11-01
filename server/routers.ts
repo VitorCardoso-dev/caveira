@@ -669,7 +669,7 @@ export const appRouter = router({
       }
       const automationStartDate = input.automationType === "manual" ? null : ownGoal[0].automationType === input.automationType && ownGoal[0].automationStartDate ? ownGoal[0].automationStartDate : new Date();
       return db.transaction(async tx => {
-        const nextStatus = input.status ?? "active";
+        const nextStatus = input.status ?? ownGoal[0].status;
         await tx.update(goals).set({ title: input.title, category: input.category || "Pessoal", target: input.target, deadline: input.deadline ? new Date(`${input.deadline}T00:00:00.000Z`) : null, automationType: input.automationType, automationRefId: input.automationType === "habit" ? input.automationRefId ?? null : input.automationType === "tasks" ? input.goalId : null, automationStartDate, status: nextStatus }).where(and(eq(goals.id, input.goalId), eq(goals.userId, ctx.user.id)));
         if (ownGoal[0].status !== "completed" && nextStatus === "completed") await recordGoalCompletionInTransaction(tx, ctx.user.id, input.goalId);
         if (input.sources) {
