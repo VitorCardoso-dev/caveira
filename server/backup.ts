@@ -115,6 +115,11 @@ export function assertBackupRelationships(payload: BackupPayload) {
   for (const row of payload.pointTransactions) {
     const activityId = optionalNumber(row, "activityId");
     if (activityId !== null && !pointActivityIds.has(activityId)) throw new Error("O backup contém uma transação ligada a uma atividade pontuável inexistente.");
+    const sourceType = optionalString(row, "sourceType");
+    const sourceId = optionalNumber(row, "sourceId");
+    if (sourceId !== null && sourceType === "habit" && !habitIds.has(sourceId)) throw new Error("A transação aponta para um hábito inexistente.");
+    if (sourceId !== null && sourceType === "task" && !payload.tasks.some(task => rowId(task, "Tarefa") === sourceId)) throw new Error("A transação aponta para uma tarefa inexistente.");
+    if (sourceId !== null && sourceType === "reward" && !rewardIds.has(sourceId) && !payload.records.some(record => rowId(record, "Registro") === sourceId)) throw new Error("A transação aponta para uma recompensa inexistente.");
   }
   for (const row of payload.rewardRedemptions) {
     if (!rewardIds.has(requiredNumber(row, "rewardId", "Resgate")) || !pointTransactionIds.has(requiredNumber(row, "pointTransactionId", "Resgate"))) throw new Error("O backup contém um resgate ligado a uma recompensa ou pontuação inexistente.");
