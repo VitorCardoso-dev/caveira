@@ -99,31 +99,35 @@ export function missedPoints(basePoints: number, isCorrosive: boolean) { return 
 const NEW_SCORING_START = "2026-10-30";
 
 type Db = Awaited<ReturnType<typeof requireDb>>;
+type DbTransaction = Parameters<Parameters<Db["transaction"]>[0]>[0];
 type ActivityOutcome = "completed" | "missed";
+type ActivityOutcomeInput = { userId: number; sourceType: "habit" | "task"; sourceId: number; occurrenceDate: string; category: string; basePoints: number; isCorrosive: boolean; outcome: ActivityOutcome };
 
-async function recordActivityOutcome(db: Db, input: { userId: number; sourceType: "habit" | "task"; sourceId: number; occurrenceDate: string; category: string; basePoints: number; isCorrosive: boolean; outcome: ActivityOutcome }) {
-  return db.transaction(async tx => {
-    const day = new Date(`${input.occurrenceDate}T00:00:00.000Z`);
-    const existing = await tx.select().from(pointActivities).where(and(eq(pointActivities.userId, input.userId), eq(pointActivities.sourceType, input.sourceType), eq(pointActivities.sourceId, input.sourceId), eq(pointActivities.occurrenceDate, day))).limit(1);
-    const current = existing[0];
-    const currentPoints = current ? (current.status === "completed" ? current.basePoints : missedPoints(current.basePoints, current.isCorrosive)) : 0;
-    const targetPoints = input.outcome === "completed" ? input.basePoints : missedPoints(input.basePoints, input.isCorrosive);
-    if (current && current.status === input.outcome) return { created: false, transactionId: null };
-    const nextVersion = (current?.version ?? 0) + 1;
-    let activityId = current?.id;
-    if (current) {
-      await tx.update(pointActivities).set({ status: input.outcome, version: nextVersion }).where(and(eq(pointActivities.id, current.id), eq(pointActivities.userId, input.userId)));
-    } else {
-      const inserted = await tx.insert(pointActivities).values({ userId: input.userId, sourceType: input.sourceType, sourceId: input.sourceId, occurrenceDate: day, category: input.category, basePoints: input.basePoints, isCorrosive: input.isCorrosive, status: input.outcome, version: nextVersion });
-      activityId = Number(inserted[0].insertId);
-    }
-    const delta = targetPoints - currentPoints;
-    const movementType = !current ? (input.outcome === "completed" ? "earned" : input.isCorrosive ? "corrosive_missed" : "missed") : "adjustment";
-    const reason = current ? `Ajuste de ${input.sourceType === "habit" ? "hábito" : "tarefa"}` : input.outcome === "completed" ? `${input.sourceType === "habit" ? "Hábito" : "Tarefa"} cumprido` : `${input.sourceType === "habit" ? "Hábito" : "Tarefa"} não cumprido`;
-    const key = `${input.sourceType}:${input.sourceId}:${input.occurrenceDate}:v${nextVersion}`;
-    const inserted = await tx.insert(pointTransactions).values({ userId: input.userId, points: delta, reason, referenceId: input.sourceId, activityId: activityId ?? null, category: input.category, movementType, sourceType: input.sourceType, sourceId: input.sourceId, occurrenceDate: day, idempotencyKey: key });
-    return { created: true, transactionId: Number(inserted[0].insertId) };
-  });
+async function recordActivityOutcomeInTransaction(tx: DbTransaction, input: ActivityOutcomeInput) {
+  const day = new Date(`${input.occurrenceDate}T00:00:00.000Z`);
+  const existing = await tx.select().from(pointActivities).where(and(eq(pointActivities.userId, input.userId), eq(pointActivities.sourceType, input.sourceType), eq(pointActivities.sourceId, input.sourceId), eq(pointActivities.occurrenceDate, day))).limit(1);
+  const current = existing[0];
+  const currentPoints = current ? (current.status === "completed" ? current.basePoints : missedPoints(current.basePoints, current.isCorrosive)) : 0;
+  const targetPoints = input.outcome === "completed" ? input.basePoints : missedPoints(input.basePoints, input.isCorrosive);
+  if (current && current.status === input.outcome) return { created: false, transactionId: null };
+  const nextVersion = (current?.version ?? 0) + 1;
+  let activityId = current?.id;
+  if (current) {
+    await tx.update(pointActivities).set({ status: input.outcome, version: nextVersion }).where(and(eq(pointActivities.id, current.id), eq(pointActivities.userId, input.userId)));
+  } else {
+    const inserted = await tx.insert(pointActivities).values({ userId: input.userId, sourceType: input.sourceType, sourceId: input.sourceId, occurrenceDate: day, category: input.category, basePoints: input.basePoints, isCorrosive: input.isCorrosive, status: input.outcome, version: nextVersion });
+    activityId = Number(inserted[0].insertId);
+  }
+  const delta = targetPoints - currentPoints;
+  const movementType = !current ? (input.outcome === "completed" ? "earned" : input.isCorrosive ? "corrosive_missed" : "missed") : "adjustment";
+  const reason = current ? `Ajuste de ${input.sourceType === "habit" ? "hábito" : "tarefa"}` : input.outcome === "completed" ? `${input.sourceType === "habit" ? "Hábito" : "Tarefa"} cumprido` : `${input.sourceType === "habit" ? "Hábito" : "Tarefa"} não cumprido`;
+  const key = `${input.sourceType}:${input.sourceId}:${input.occurrenceDate}:v${nextVersion}`;
+  const inserted = await tx.insert(pointTransactions).values({ userId: input.userId, points: delta, reason, referenceId: input.sourceId, activityId: activityId ?? null, category: input.category, movementType, sourceType: input.sourceType, sourceId: input.sourceId, occurrenceDate: day, idempotencyKey: key });
+  return { created: true, transactionId: Number(inserted[0].insertId) };
+}
+
+async function recordActivityOutcome(db: Db, input: ActivityOutcomeInput) {
+  return db.transaction(tx => recordActivityOutcomeInTransaction(tx, input));
 }
 
 async function reconcileMissedActivities(db: Db, userId: number, today: string) {
@@ -445,11 +449,15 @@ export const appRouter = router({
       const ownHabit = await db.select({ id: habits.id, category: habits.category, isCorrosive: habits.isCorrosive }).from(habits).where(and(eq(habits.id, input.habitId), eq(habits.userId, ctx.user.id))).limit(1);
       if (!ownHabit[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Hábito não encontrado." });
       const day = new Date(`${input.day}T00:00:00.000Z`);
-      const existing = await db.select().from(habitCompletions).where(and(eq(habitCompletions.habitId, input.habitId), eq(habitCompletions.userId, ctx.user.id), eq(habitCompletions.day, day))).limit(1);
-      if (existing[0]) {
-        await db.update(habitCompletions).set({ status: input.completed ? "completed" : "missed" }).where(eq(habitCompletions.id, existing[0].id));
-      } else await db.insert(habitCompletions).values({ userId: ctx.user.id, habitId: input.habitId, day, status: input.completed ? "completed" : "missed" });
-      await recordActivityOutcome(db, { userId: ctx.user.id, sourceType: "habit", sourceId: input.habitId, occurrenceDate: input.day, category: ownHabit[0].category, basePoints: pointsForCategory(ownHabit[0].category), isCorrosive: existing[0] ? (await db.select({ isCorrosive: pointActivities.isCorrosive }).from(pointActivities).where(and(eq(pointActivities.userId, ctx.user.id), eq(pointActivities.sourceType, "habit"), eq(pointActivities.sourceId, input.habitId), eq(pointActivities.occurrenceDate, day))).limit(1))[0]?.isCorrosive ?? ownHabit[0].isCorrosive : ownHabit[0].isCorrosive, outcome: input.completed ? "completed" : "missed" });
+      await db.transaction(async tx => {
+        const existing = await tx.select().from(habitCompletions).where(and(eq(habitCompletions.habitId, input.habitId), eq(habitCompletions.userId, ctx.user.id), eq(habitCompletions.day, day))).limit(1);
+        if (existing[0]) {
+          await tx.update(habitCompletions).set({ status: input.completed ? "completed" : "missed" }).where(and(eq(habitCompletions.id, existing[0].id), eq(habitCompletions.userId, ctx.user.id)));
+        } else {
+          await tx.insert(habitCompletions).values({ userId: ctx.user.id, habitId: input.habitId, day, status: input.completed ? "completed" : "missed" });
+        }
+        await recordActivityOutcomeInTransaction(tx, { userId: ctx.user.id, sourceType: "habit", sourceId: input.habitId, occurrenceDate: input.day, category: ownHabit[0].category, basePoints: pointsForCategory(ownHabit[0].category), isCorrosive: ownHabit[0].isCorrosive, outcome: input.completed ? "completed" : "missed" });
+      });
       return { success: true } as const;
     }),
     delete: protectedProcedure.input(z.object({ habitId: idSchema })).mutation(async ({ ctx, input }) => {
@@ -490,8 +498,10 @@ export const appRouter = router({
       if (input.completed && ownTask[0].dueDate && dateKey(ownTask[0].dueDate) < today) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "O prazo desta tarefa já terminou e ela foi considerada não concluída." });
       }
-      await db.update(tasks).set({ status: input.completed ? "completed" : "todo" }).where(and(eq(tasks.id, input.taskId), eq(tasks.userId, ctx.user.id)));
-      await recordActivityOutcome(db, { userId: ctx.user.id, sourceType: "task", sourceId: input.taskId, occurrenceDate: today, category: ownTask[0].category, basePoints: pointsForCategory(ownTask[0].category), isCorrosive: ownTask[0].isCorrosive, outcome: input.completed ? "completed" : "missed" });
+      await db.transaction(async tx => {
+        await tx.update(tasks).set({ status: input.completed ? "completed" : "todo" }).where(and(eq(tasks.id, input.taskId), eq(tasks.userId, ctx.user.id)));
+        await recordActivityOutcomeInTransaction(tx, { userId: ctx.user.id, sourceType: "task", sourceId: input.taskId, occurrenceDate: today, category: ownTask[0].category, basePoints: pointsForCategory(ownTask[0].category), isCorrosive: ownTask[0].isCorrosive, outcome: input.completed ? "completed" : "missed" });
+      });
       return { success: true } as const;
     }),
     delete: protectedProcedure.input(z.object({ taskId: idSchema })).mutation(async ({ ctx, input }) => {
