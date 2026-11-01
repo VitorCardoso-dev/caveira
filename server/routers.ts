@@ -852,10 +852,14 @@ export const appRouter = router({
       const hasData = activeDays.size > 0 || monthTasksCreated.length > 0 || monthGoals.length > 0;
       const bestArea = areas[0] ?? null;
       const attentionArea = areas.length > 1 ? areas[areas.length - 1] : null;
+      const scoreMetrics = [currentDay ? Math.round((activeDays.size / currentDay) * 100) : null, monthTasksCreated.length ? Math.round((completedTasks.length / monthTasksCreated.length) * 100) : null, areas.length ? Math.round(areas.reduce((sum, area) => sum + area.rate, 0) / areas.length) : null].filter((value): value is number => value !== null);
+      const scoreValue = scoreMetrics.length ? Math.max(0, Math.min(100, Math.round(scoreMetrics.reduce((sum, value) => sum + value, 0) / scoreMetrics.length))) : null;
+      const scoreLabel = scoreValue === null ? "Dados insuficientes" : scoreValue >= 85 ? "Excelente" : scoreValue >= 70 ? "Bom" : scoreValue >= 50 ? "Regular" : "Precisa melhorar";
       return {
         month,
         hasData,
         summary: { consistency: currentDay ? Math.round((activeDays.size / currentDay) * 100) : 0, activeDays: activeDays.size, completedTasks: completedTasks.length, accompaniedGoals: monthGoals.length },
+        score: scoreValue === null ? null : { value: scoreValue, label: scoreLabel, criteria: "Média de consistência, conclusão de tarefas e desempenho médio das áreas registradas." },
         daily,
         areas,
         analysis: hasData ? { bestArea: bestArea?.category ?? null, attentionArea: attentionArea?.category ?? null, suggestions: [bestArea ? `Mantenha o ritmo em ${bestArea.category}.` : null, attentionArea ? `Revise a rotina de ${attentionArea.category} no próximo ciclo.` : null, completedTasks.length === 0 ? "Defina uma primeira tarefa com prazo real para criar uma referência." : null].filter(Boolean) } : null,
