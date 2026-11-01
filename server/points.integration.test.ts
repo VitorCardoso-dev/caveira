@@ -65,7 +65,7 @@ describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
     expect(nonZeroMovements.filter(row => row.movementType === "redemption")).toHaveLength(1);
     const weekly = await ownerCaller.points.weekly({ today });
     expect(weekly.walletBalance).toBe(-20);
-    expect(weekly.earned).toBe(13);
+    expect(weekly.earned).toBe(10);
     expect(weekly.lost).toBe(15);
     expect(weekly.spent).toBe(15);
     expect(weekly.net).toBe(-20);
@@ -141,7 +141,7 @@ describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
     expect(ledger.filter(row => row.sourceType === "focus" && row.points === 1)).toHaveLength(3);
 
     const weekly = await api.points.weekly({ today });
-    expect(weekly.earned).toBe(10);
+    expect(weekly.earned).toBe(13);
     expect(weekly.breakdown.goals).toBe(8);
     expect(weekly.breakdown.focus).toBe(5);
   });
