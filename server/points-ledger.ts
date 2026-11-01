@@ -27,3 +27,13 @@ export function summarizeLedgerPeriod(rows: PointLedgerMovement[], start: string
   const spent = inPeriod.reduce((sum, row) => sum + (row.movementType === "legacy" ? Math.abs(row.points) : 0), 0);
   return { earned, lost: Math.abs(lost), spent, net: earned - Math.abs(lost) - spent };
 }
+
+export function calculateActivityTransition(
+  currentStatus: "completed" | "missed" | null,
+  currentPoints: number,
+  nextStatus: "completed" | "missed",
+  nextPoints: number,
+) {
+  if (currentStatus === nextStatus) return null;
+  return nextPoints - currentPoints;
+}
