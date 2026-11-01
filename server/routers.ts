@@ -990,27 +990,28 @@ export const appRouter = router({
     export: protectedProcedure.query(async ({ ctx }) => {
       const db = await requireDb();
       const userId = ctx.user.id;
-      const [recordRows, habitRows, completionRows, taskRows, goalRows, goalSourceRows, focusRows, activityRows, pointRows, auditRows, rewardRows, redemptionRows, settingsRows, libraryRows, planRows, exerciseRows, sessionRows, setRows] = await Promise.all([
-        db.select().from(moduleRecords).where(eq(moduleRecords.userId, userId)),
-        db.select().from(habits).where(eq(habits.userId, userId)),
-        db.select().from(habitCompletions).where(eq(habitCompletions.userId, userId)),
-        db.select().from(tasks).where(eq(tasks.userId, userId)),
-        db.select().from(goals).where(eq(goals.userId, userId)),
-        db.select().from(goalSources).where(eq(goalSources.userId, userId)),
-        db.select().from(focusSessions).where(eq(focusSessions.userId, userId)),
-        db.select().from(pointActivities).where(eq(pointActivities.userId, userId)),
-        db.select().from(pointTransactions).where(eq(pointTransactions.userId, userId)),
-        db.select().from(auditLogs).where(eq(auditLogs.userId, userId)),
-        db.select().from(rewards).where(eq(rewards.userId, userId)),
-        db.select().from(rewardRedemptions).where(eq(rewardRedemptions.userId, userId)),
-        db.select().from(userSettings).where(eq(userSettings.userId, userId)).limit(1),
-        db.select().from(exerciseLibrary).where(eq(exerciseLibrary.userId, userId)),
-        db.select().from(trainingPlans).where(eq(trainingPlans.userId, userId)),
-        db.select().from(trainingExercises).where(eq(trainingExercises.userId, userId)),
-        db.select().from(trainingSessions).where(eq(trainingSessions.userId, userId)),
-        db.select().from(trainingSets).where(eq(trainingSets.userId, userId)),
+      return db.transaction(async tx => {
+        const [recordRows, habitRows, completionRows, taskRows, goalRows, goalSourceRows, focusRows, activityRows, pointRows, auditRows, rewardRows, redemptionRows, settingsRows, libraryRows, planRows, exerciseRows, sessionRows, setRows] = await Promise.all([
+        tx.select().from(moduleRecords).where(eq(moduleRecords.userId, userId)),
+        tx.select().from(habits).where(eq(habits.userId, userId)),
+        tx.select().from(habitCompletions).where(eq(habitCompletions.userId, userId)),
+        tx.select().from(tasks).where(eq(tasks.userId, userId)),
+        tx.select().from(goals).where(eq(goals.userId, userId)),
+        tx.select().from(goalSources).where(eq(goalSources.userId, userId)),
+        tx.select().from(focusSessions).where(eq(focusSessions.userId, userId)),
+        tx.select().from(pointActivities).where(eq(pointActivities.userId, userId)),
+        tx.select().from(pointTransactions).where(eq(pointTransactions.userId, userId)),
+        tx.select().from(auditLogs).where(eq(auditLogs.userId, userId)),
+        tx.select().from(rewards).where(eq(rewards.userId, userId)),
+        tx.select().from(rewardRedemptions).where(eq(rewardRedemptions.userId, userId)),
+        tx.select().from(userSettings).where(eq(userSettings.userId, userId)).limit(1),
+        tx.select().from(exerciseLibrary).where(eq(exerciseLibrary.userId, userId)),
+        tx.select().from(trainingPlans).where(eq(trainingPlans.userId, userId)),
+        tx.select().from(trainingExercises).where(eq(trainingExercises.userId, userId)),
+        tx.select().from(trainingSessions).where(eq(trainingSessions.userId, userId)),
+        tx.select().from(trainingSets).where(eq(trainingSets.userId, userId)),
       ]);
-      return {
+        return {
         version: 3,
         exportId: randomUUID(),
         exportedAt: new Date().toISOString(),
@@ -1032,7 +1033,8 @@ export const appRouter = router({
         trainingExercises: exerciseRows,
         trainingSessions: sessionRows,
         trainingSets: setRows,
-      };
+        };
+      });
     }),
     importRecords: protectedProcedure.input(backupPayloadSchema).mutation(async ({ ctx, input }) => {
       const payload = backupPayloadSchema.parse(input);
