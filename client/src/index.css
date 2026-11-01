@@ -30,7 +30,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .font-display { font-family: "Inter", "Helvetica Neue", Arial, sans-serif; }
   .eyebrow { color: #93c5fd; font-size: 10px; font-weight: 800; letter-spacing: .19em; line-height: 1.2; text-transform: uppercase; }
   .brand-mark { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border: 1px solid #3b3b43; border-radius: 11px; color: #e53935; background: #151519; }
-  .status-dot { display: inline-block; width: 6px; height: 6px; border-radius: 99px; background: #b7f36b; box-shadow: 0 0 0 3px rgba(183,243,107,.10); }
+  .status-dot { display: inline-block; width: 6px; height: 6px; border-radius: 99px; background: #86efac; box-shadow: 0 0 0 3px rgba(134,239,172,.10); }
   .side-nav-item { display: flex; align-items: center; gap: 12px; border-radius: 12px; color: #96959d; font-size: 13px; font-weight: 650; padding: 10px 12px; transition: color .18s, background .18s, transform .18s; }
   .side-nav-item:hover, .side-nav-item:focus-visible, .side-nav-item.active { color: #86efac; background: #17171c; transform: translateX(2px); }
   .side-nav-item[href="/"], .side-nav-item.active { color: #86efac; background: #171f1d; }
