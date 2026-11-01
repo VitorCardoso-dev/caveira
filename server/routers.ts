@@ -1030,6 +1030,7 @@ export const appRouter = router({
       completedTasks.forEach(task => activeDays.add(dateKey(task.completedAt!)));
       monthCompletions.forEach(item => activeDays.add(dateKey(item.day)));
       monthSessions.forEach(item => activeDays.add(dateKey(item.sessionDate)));
+      const behaviorActiveDays = new Set(activeDays);
       monthRecords.filter(record => record.module === "financas" || record.module === "alimentacao").forEach(record => activeDays.add(dateKey(record.recordDate ?? record.createdAt)));
       const daily = windows.monthToDateDays.map(day => ({
         day,
@@ -1058,7 +1059,7 @@ export const appRouter = router({
       const attentionArea = areas.length > 1 ? areas[areas.length - 1] : null;
       const hasBehaviorData = monthTasksCreated.length > 0 || monthCompletions.length > 0 || monthSessions.length > 0 || areas.length > 0;
       const scoreMetrics = hasBehaviorData
-        ? [currentDay ? Math.round((activeDays.size / currentDay) * 100) : null, monthTasksCreated.length ? Math.round((completedMonthTasks.length / monthTasksCreated.length) * 100) : null, areas.length ? Math.round(areas.reduce((sum, area) => sum + area.rate, 0) / areas.length) : null].filter((value): value is number => value !== null)
+        ? [currentDay ? Math.round((behaviorActiveDays.size / currentDay) * 100) : null, monthTasksCreated.length ? Math.round((completedMonthTasks.length / monthTasksCreated.length) * 100) : null, areas.length ? Math.round(areas.reduce((sum, area) => sum + area.rate, 0) / areas.length) : null].filter((value): value is number => value !== null)
         : [];
       const scoreValue = scoreMetrics.length ? Math.max(0, Math.min(100, Math.round(scoreMetrics.reduce((sum, value) => sum + value, 0) / scoreMetrics.length))) : null;
       const scoreLabel = scoreValue === null ? "Dados insuficientes" : scoreValue >= 85 ? "Excelente" : scoreValue >= 70 ? "Bom" : scoreValue >= 50 ? "Regular" : "Precisa melhorar";
