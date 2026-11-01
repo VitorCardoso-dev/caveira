@@ -267,48 +267,13 @@ function FocusWorkspace() {
   const sessions = trpc.focus.sessions.useQuery(undefined, { refetchOnWindowFocus: false });
   const log = trpc.focus.log.useMutation({ onSuccess: () => sessions.refetch() });
   const [duration, setDuration] = useState(25 * 60);
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [running, setRunning] = useState(false);
   const [startedAt, setStartedAt] = useState<string | null>(null);
-  useEffect(() => {
-    if (!running) return;
-    const timer = window.setInterval(() => {
-      setElapsedSeconds(value => value + 1);
-      setDuration(value => {
-        if (value <= 1) {
-          window.clearInterval(timer);
-          setRunning(false);
-          return 0;
-        }
-        return value - 1;
-      });
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [running]);
+  useEffect(() => { if (!running) return; const timer = window.setInterval(() => setDuration(value => { if (value <= 1) { window.clearInterval(timer); setRunning(false); return 0; } return value - 1; }), 1000); return () => window.clearInterval(timer); }, [running]);
   const minutes = String(Math.floor(duration / 60)).padStart(2, "0"); const seconds = String(duration % 60).padStart(2, "0");
-  const start = () => { if (duration <= 0) return; setStartedAt(current => current ?? new Date().toISOString()); setRunning(true); };
-  const stop = async () => {
-    const endedAt = new Date();
-    const startDate = startedAt ? new Date(startedAt) : new Date(endedAt.getTime() - elapsedSeconds * 1000);
-    const elapsed = Math.max(1, Math.round(elapsedSeconds / 60));
-    try {
-      await log.mutateAsync({ durationMinutes: elapsed, startedAt: startDate.toISOString(), endedAt: endedAt.toISOString() });
-      toast.success(`${elapsed} min registrados no foco.`);
-      setRunning(false); setStartedAt(null); setElapsedSeconds(0); setDuration(25 * 60);
-    } catch { toast.error("Não foi possível registrar a sessão."); }
-  };
-  return <Shell module="foco"><div className="grid gap-6 lg:grid-cols-[1fr_360px]"><div className="panel-card flex min-h-[470px] flex-col items-center justify-center text-center"><p className="eyebrow text-caveira-red">bloco atual</p><div className="my-8 font-mono text-8xl font-bold tracking-[-0.09em] sm:text-9xl">{minutes}:{seconds}</div><p className="max-w-sm text-sm leading-6 text-caveira-muted">Concentre-se em uma prioridade. Ao parar, o tempo efetivamente transcorrido é salvo no histórico.</p><div className="mt-8 flex flex-wrap justify-center gap-3">{!running ? <button onClick={start} className="button-primary"><Play size={16} /> iniciar</button> : <button onClick={() => setRunning(false)} className="button-secondary"><Pause size={16} /> pausar</button>}{startedAt && <button onClick={stop} disabled={log.isPending} className="button-secondary disabled:cursor-not-allowed disabled:opacity-50"><Check size={16} /> {log.isPending ? "salvando..." : "finalizar e salvar"}</button>}</div><div className="mt-8 flex items-center gap-2"><button onClick={() => { setRunning(false); setDuration(25 * 60); setStartedAt(null); setElapsedSeconds(0); }} className="text-xs font-bold uppercase tracking-[.14em] text-caveira-muted hover:text-caveira-text">Pomodoro 25</button><span className="text-caveira-border">/</span><button onClick={() => { setRunning(false); setDuration(50 * 60); setStartedAt(null); setElapsedSeconds(0); }} className="text-xs font-bold uppercase tracking-[.14em] text-caveira-muted hover:text-caveira-text">Bloco 50</button></div></div><div className="panel-card"><div className="section-heading"><div><p className="eyebrow">histórico</p><h2 className="section-title">Sessões salvas</h2></div><Clock3 size={18} className="text-caveira-muted" /></div>{sessions.data?.length ? <div className="space-y-2">{sessions.data.map(session => <div key={session.id} className="record-row"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-caveira-panel-soft text-caveira-green"><Timer size={15} /></div><div className="flex-1"><p className="text-sm font-semibold">{session.durationMinutes} minutos</p><p className="mt-1 text-[10px] uppercase tracking-[.14em] text-caveira-muted">{formatDate(session.createdAt)}</p></div></div>)}</div> : <Empty label="Nenhuma sessão concluída." />}</div></div></Shell>;
-}
-
-function ReportMetric({ label, value, detail, icon: Icon, accent = "default" }: { label: string; value: string | number; detail: string; icon: LucideIcon; accent?: "default" | "red" | "green" }) { return <div className="metric-card"><div className={`metric-icon ${accent}`}><Icon size={17} /></div><div><p className="metric-label">{label}</p><p className="metric-value">{value}</p><p className="metric-detail">{detail}</p></div></div>; }
-
-function MonthlyLineChart({ points }: { points: Array<{ day: string; points: number }> }) {
-  const values = points.map(point => point.points);
-  const max = Math.max(...values, 1);
-  const width = 720;
-  const height = 210;
-  const chart = points.map((point, index) => `${(index / Math.max(points.length - 1, 1)) * width},${height - (point.points / max) * 165 - 15}`).join(" ");
-  return <div className="overflow-hidden rounded-2xl border border-caveira-border bg-caveira-panel-soft p-3"><svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" role="img" aria-label="Evolução diária do mês"><line x1="0" y1="195" x2={width} y2="195" stroke="#29292f" /><line x1="0" y1="112" x2={width} y2="112" stroke="#29292f" strokeDasharray="4 8" /><polyline fill="none" stroke="#e53935" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" points={chart} />{points.map((point, index) => <circle key={point.day} cx={(index / Math.max(points.length - 1, 1)) * width} cy={height - (point.points / max) * 165 - 15} r="4" fill="#b7f36b" />)}</svg><div className="mt-2 flex justify-between text-[10px] font-bold uppercase tracking-[.12em] text-caveira-muted"><span>dia 01</span><span>picos e baixas do mês</span><span>dia {String(points.length).padStart(2, "0")}</span></div></div>;
+  const start = () => { setStartedAt(new Date().toISOString()); setRunning(true); };
+  const stop = async () => { const endedAt = new Date(); const startDate = startedAt ? new Date(startedAt) : new Date(endedAt.getTime() - 25 * 60000); const elapsed = Math.max(1, Math.round((endedAt.getTime() - startDate.getTime()) / 60000)); try { await log.mutateAsync({ durationMinutes: elapsed, startedAt: startDate.toISOString(), endedAt: endedAt.toISOString() }); toast.success(`${elapsed} min registrados no foco.`); } catch { toast.error("Não foi possível registrar a sessão."); } setRunning(false); setStartedAt(null); setDuration(25 * 60); };
+  return <Shell module="foco"><div className="grid gap-6 lg:grid-cols-[1fr_360px]"><div className="panel-card flex min-h-[470px] flex-col items-center justify-center text-center"><p className="eyebrow text-caveira-red">bloco atual</p><div className="my-8 font-mono text-8xl font-bold tracking-[-0.09em] sm:text-9xl">{minutes}:{seconds}</div><p className="max-w-sm text-sm leading-6 text-caveira-muted">Concentre-se em uma prioridade. Ao parar, o tempo efetivamente transcorrido é salvo no histórico.</p><div className="mt-8 flex flex-wrap justify-center gap-3">{!running ? <button onClick={start} className="button-primary"><Play size={16} /> iniciar</button> : <button onClick={() => setRunning(false)} className="button-secondary"><Pause size={16} /> pausar</button>}{startedAt && <button onClick={stop} className="button-secondary"><Check size={16} /> finalizar e salvar</button>}</div><div className="mt-8 flex items-center gap-2"><button onClick={() => { setRunning(false); setDuration(25 * 60); setStartedAt(null); }} className="text-xs font-bold uppercase tracking-[.14em] text-caveira-muted hover:text-caveira-text">Pomodoro 25</button><span className="text-caveira-border">/</span><button onClick={() => { setRunning(false); setDuration(50 * 60); setStartedAt(null); }} className="text-xs font-bold uppercase tracking-[.14em] text-caveira-muted hover:text-caveira-text">Bloco 50</button></div></div><div className="panel-card"><div className="section-heading"><div><p className="eyebrow">histórico</p><h2 className="section-title">Sessões salvas</h2></div><Clock3 size={18} className="text-caveira-muted" /></div>{sessions.data?.length ? <div className="space-y-2">{sessions.data.map(session => <div key={session.id} className="record-row"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-caveira-panel-soft text-caveira-green"><Timer size={15} /></div><div className="flex-1"><p className="text-sm font-semibold">{session.durationMinutes} minutos</p><p className="mt-1 text-[10px] uppercase tracking-[.14em] text-caveira-muted">{formatDate(session.createdAt)}</p></div></div>)}</div> : <Empty label="Nenhuma sessão concluída." />}</div></div></Shell>;
 }
 
 function ReportsWorkspace() {
