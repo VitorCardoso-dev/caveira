@@ -162,6 +162,7 @@ describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
     expect(monthly.summary.financeExpensesCents).toBe(80000);
     expect(monthly.summary.financeBalanceCents).toBe(170000);
     expect(monthly.summary.nutritionCalories).toBe(2100);
+    expect(monthly.score).toBeNull();
   });
 
   it("migra o saldo legado uma única vez e o soma ao ledger novo", async () => {
