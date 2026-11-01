@@ -79,6 +79,29 @@ describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
     expect(ownReward).toHaveLength(1);
     expect(otherReward).toHaveLength(0);
   });
+  it("bloqueia datas futuras e preserva a data real de conclusão de uma tarefa", async () => {
+    const owner = await createUser();
+    const api = caller(owner);
+    await api.habits.create({ name: "Hábito futuro", category: "Estudos", isCorrosive: false, frequency: "daily" });
+    const habit = (await db.select().from(habits).where(eq(habits.userId, owner.id)).limit(1))[0];
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+    const tomorrowDate = new Date(`${today}T12:00:00.000Z`);
+    tomorrowDate.setUTCDate(tomorrowDate.getUTCDate() + 1);
+    const tomorrow = tomorrowDate.toISOString().slice(0, 10);
+    await expect(api.habits.toggleToday({ habitId: habit.id, day: tomorrow, completed: true })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await api.tasks.create({ title: "Tarefa para concluir", category: "Estudos", isCorrosive: false, dueDate: null, goalId: null });
+    const task = (await db.select().from(tasks).where(eq(tasks.userId, owner.id)).limit(1))[0];
+    await expect(api.tasks.toggleComplete({ taskId: task.id, completed: true, today: tomorrow })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(api.points.weekly({ today: tomorrow })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await api.tasks.toggleComplete({ taskId: task.id, completed: true, today });
+    const completed = (await db.select().from(tasks).where(eq(tasks.id, task.id)).limit(1))[0];
+    expect(completed.completedAt).toBeInstanceOf(Date);
+    await api.tasks.update({ taskId: task.id, title: "Tarefa editada depois", category: "Trabalho", isCorrosive: false, dueDate: null, goalId: null });
+    const edited = (await db.select().from(tasks).where(eq(tasks.id, task.id)).limit(1))[0];
+    expect(edited.status).toBe("completed");
+    expect(edited.completedAt?.getTime()).toBe(completed.completedAt?.getTime());
+  });
+
   it("migra o saldo legado uma única vez e o soma ao ledger novo", async () => {
     const owner = await createUser();
     const legacyDate = new Date("2026-10-26T12:00:00.000Z");
