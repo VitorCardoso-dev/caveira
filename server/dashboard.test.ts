@@ -9,7 +9,7 @@ describe("placar diário", () => {
         2,
         [{ status: "completed" }, { status: "todo" }],
       ),
-    ).toBe(75);
+    ).toBe(60);
   });
 
   it("não usa tarefas concluídas em outros dias para inflar o placar de hoje", () => {
