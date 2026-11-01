@@ -120,5 +120,8 @@ describe.skipIf(!enabled)("points lifecycle integration (MySQL)", () => {
     await caller(owner).points.weekly({ today: "2026-10-30" });
     const retriedRows = await db.select().from(pointTransactions).where(eq(pointTransactions.userId, owner.id));
     expect(retriedRows.filter(row => row.idempotencyKey === "legacy-opening-balance:v1")).toHaveLength(1);
+    const history = await caller(owner).points.history({ limit: 10 });
+    expect(history.items.map(row => row.points)).toContain(-3);
+    expect(history.items.map(row => row.points)).toContain(6);
   });
 });
